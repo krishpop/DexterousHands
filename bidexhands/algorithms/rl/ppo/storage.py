@@ -1,10 +1,20 @@
 import torch
+import h5py
 from torch.utils.data.sampler import BatchSampler, SequentialSampler, SubsetRandomSampler
 
 
 class RolloutStorage:
 
-    def __init__(self, num_envs, num_transitions_per_env, obs_shape, states_shape, actions_shape, device='cpu', sampler='sequential'):
+    def __init__(
+        self,
+        num_envs,
+        num_transitions_per_env,
+        obs_shape,
+        states_shape,
+        actions_shape,
+        device="cpu",
+        sampler="sequential",
+    ):
 
         self.device = device
         self.sampler = sampler
@@ -28,6 +38,30 @@ class RolloutStorage:
         self.num_envs = num_envs
 
         self.step = 0
+
+    def save_hdf5(self, path):
+        with h5py.File(path, "w") as f:
+            # Store each episode as a separate demo
+            grp = f.create_group("data")
+            for ep in range(self.num_envs):
+                if self.dones[-1, ep]:
+                    grp_ep = grp.create_group(f"demo_{ep}")
+                    num_samples = self.observations[:, ep].shape[0]
+                    grp_ep.attrs["num_samples"] = num_samples
+
+                    # Store each key as a separate dataset
+                    for key in [("observations", "obs"), "states", "actions", "rewards", "dones"]:
+                        if isinstance(key, tuple):
+                            key, grp_key = key
+                        else:
+                            grp_key = key
+                        data = getattr(self, key)[:num_samples, ep].cpu().numpy()
+                        grp_ep.create_dataset(grp_key, data=data, compression="gzip")
+
+                    # Store additional keys used by PPO
+                    for key in ["actions_log_prob", "values", "returns", "advantages", "mu", "sigma"]:
+                        data = getattr(self, key)[:num_samples, ep].cpu().numpy()
+                        grp_ep.create_dataset(key, data=data, compression="gzip")
 
     def add_transitions(self, observations, states, actions, rewards, dones, values, actions_log_prob, mu, sigma):
         if self.step >= self.num_transitions_per_env:
@@ -68,8 +102,10 @@ class RolloutStorage:
         done = self.dones.cpu()
         done[-1] = 1
         flat_dones = done.permute(1, 0, 2).reshape(-1, 1)
-        done_indices = torch.cat((flat_dones.new_tensor([-1], dtype=torch.int64), flat_dones.nonzero(as_tuple=False)[:, 0]))
-        trajectory_lengths = (done_indices[1:] - done_indices[:-1])
+        done_indices = torch.cat(
+            (flat_dones.new_tensor([-1], dtype=torch.int64), flat_dones.nonzero(as_tuple=False)[:, 0])
+        )
+        trajectory_lengths = done_indices[1:] - done_indices[:-1]
         return trajectory_lengths.float().mean(), self.rewards.mean()
 
     def mini_batch_generator(self, num_mini_batches):

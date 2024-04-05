@@ -51,6 +51,8 @@ class PPO:
         self.model_cfg = self.cfg_train["policy"]
         self.num_transitions_per_env=learn_cfg["nsteps"]
         self.learning_rate=learn_cfg["optim_stepsize"]
+        self.record_episodes = cfg_train.get("record_episodes", False)
+        self.num_rollouts = cfg_train.get("num_rollouts", 1000)
 
         # PPO components
         self.vec_env = vec_env
@@ -75,6 +77,8 @@ class PPO:
 
         # Log
         self.log_dir = log_dir
+        if self.record_episodes: 
+            self.hdf5_filepath = os.path.join(self.log_dir, "episodes.hdf5")
         self.print_log = print_log
         self.writer = SummaryWriter(log_dir=self.log_dir, flush_secs=10)
         self.tot_timesteps = 0
@@ -105,11 +109,18 @@ class PPO:
                 with torch.no_grad():
                     if self.apply_reset:
                         current_obs = self.vec_env.reset()
+                        current_states = self.vec_env.get_state()
                     # Compute the action
                     actions = self.actor_critic.act_inference(current_obs)
                     # Step the vec_environment
                     next_obs, rews, dones, infos = self.vec_env.step(actions)
+                    if self.record_episodes:
+                        self.storage.add_transitions(current_obs, current_states, actions, rews, dones, torch.zeros_like(rews), torch.zeros_like(rews), torch.zeros_like(actions), torch.zeros_like(actions))
+                        if dones.any():
+                            self.storage.save_hdf5(self.hdf5_filepath)
+                            self.storage.clear()
                     current_obs.copy_(next_obs)
+                    current_states.copy_(self.vec_env.get_state())
         else:
             rewbuffer = deque(maxlen=100)
             lenbuffer = deque(maxlen=100)
