@@ -11,7 +11,9 @@ import operator
 from copy import deepcopy
 import random
 
+from omegaconf import OmegaConf
 from isaacgym import gymapi
+from isaacgym import gymtorch
 from isaacgym.gymutil import get_property_setter_map, get_property_getter_map, get_default_setter_args, apply_random_samples, check_buckets, generate_random_samples
 
 import numpy as np
@@ -35,6 +37,7 @@ class BaseTask():
 
         # double check!
         self.graphics_device_id = self.device_id
+        enable_camera_sensors = enable_camera_sensors or self.cfg["env"].get("enableCameraSensors", False)
         if enable_camera_sensors == False and self.headless == True:
             self.graphics_device_id = -1
 
@@ -125,6 +128,195 @@ class BaseTask():
             quit()
 
         return sim
+
+    def get_camera_image_tensors_dict(self, obs_dict):
+        # transforms and information must be communicated from the physics simulation into the graphics system
+        if self.device != "cpu":
+            self.gym.fetch_results(self.sim, True)
+        self.gym.step_graphics(self.sim)
+
+        self.gym.render_all_camera_sensors(self.sim)
+        self.gym.start_access_image_tensors(self.sim)
+
+        camera_image_tensors_dict = dict()
+
+        for name in self.camera_spec_dict:
+            camera_spec = self.camera_spec_dict[name]
+            if camera_spec["image_type"] == "rgb":
+                num_channels = 3
+                camera_images = obs_dict.get(
+                    name,
+                    torch.zeros(
+                        (
+                            self.num_envs,
+                            camera_spec.image_size[0],
+                            camera_spec.image_size[1],
+                            num_channels,
+                        ),
+                        device=self.device,
+                        dtype=torch.uint8,
+                    ),
+                )
+                for id in np.arange(self.num_envs):
+                    camera_images[id] = self.camera_tensors_list[id][name][
+                        :, :, :num_channels
+                    ].clone()
+            elif camera_spec["image_type"] == "depth":
+                num_channels = 1
+                camera_images = self.obs_dict.get(
+                    name,
+                    torch.zeros(
+                        (
+                            self.num_envs,
+                            camera_spec.image_size[0],
+                            camera_spec.image_size[1],
+                        ),
+                        device=self.device,
+                        dtype=torch.float,
+                    ),
+                )
+                for id in np.arange(self.num_envs):
+                    # Note that isaac gym returns negative depth
+                    # See: https://carbon-gym.gitlab-master-pages.nvidia.com/carbgym/graphics.html?highlight=image_depth#camera-image-types
+                    camera_images[id] = (
+                        self.camera_tensors_list[id][name][:, :].clone() * -1.0
+                    )
+                    camera_images[id][camera_images[id] == np.inf] = 0.0
+            else:
+                print(f'Image type {camera_spec["image_type"]} not supported!')
+            camera_image_tensors_dict[name] = camera_images
+        return camera_image_tensors_dict
+
+    def create_camera_actors(self):
+        import copy
+        from scipy.spatial.transform import Rotation
+
+        if hasattr(self, "camera_handles_list"):
+            return
+        self.camera_handles_list = []
+        self.camera_tensors_list = []
+        if self.camera_spec_dict:
+            camera_name = list(self.camera_spec_dict.keys())[0]
+            init_camera_spec = self.cfg["env"]["camera_spec"][camera_name]
+        else:
+            camera_name = "hand_camera"
+            init_camera_spec = self.cfg["env"]["cameraSpec"]["fixed_camera"]
+        
+        pos, rot = init_camera_spec.get("camera_pose", [[0.0, -0.35, 0.2], [0.0, 0.0, 0.85090352, 0.52532199]])
+        R = Rotation.from_quat(rot)
+        self.camera_spec_dicts = []
+        # create a line of cameras from initial position looking in same direction
+        for i in range(self.num_envs):
+            env_ptr = self.envs[i]
+            camera_spec = copy.deepcopy(self.camera_spec_dict)
+            cameras_per_axis = self.num_envs // 3 + int(self.num_envs % 3 > 0)
+            fov = 60
+            # rotate camera by 5 degrees around pitch axis
+            axis = "xyz"[int(i / cameras_per_axis)]
+            c = fov / cameras_per_axis
+            new_rot = R * Rotation.from_euler(axis, -fov / 2 + (i % cameras_per_axis) * c, degrees=True)
+            new_rot = R 
+            camera_spec[camera_name]["camera_pose"] = [pos, [float(x) for x in new_rot.as_quat()]]
+            env_camera_handles = self.setup_env_cameras(env_ptr, camera_spec)
+            self.camera_spec_dicts.append(camera_spec)
+            self.camera_handles_list.append(env_camera_handles)
+            self.camera_tensors_list.append(
+                self.create_tensors_for_env_cameras(env_ptr, env_camera_handles, camera_spec)
+            )
+
+    def create_tensors_for_env_cameras(
+        self, env_ptr, env_camera_handles, camera_spec_dict
+    ):
+        env_camera_tensors = {}
+        for name in env_camera_handles:
+            camera_handle = env_camera_handles[name]
+            if camera_spec_dict[name].image_type == "rgb":
+                # obtain camera tensor
+                camera_tensor = self.gym.get_camera_image_gpu_tensor(
+                    self.sim, env_ptr, camera_handle, gymapi.IMAGE_COLOR
+                )
+            elif camera_spec_dict[name].image_type == "depth":
+                # obtain camera tensor
+                camera_tensor = self.gym.get_camera_image_gpu_tensor(
+                    self.sim, env_ptr, camera_handle, gymapi.IMAGE_DEPTH
+                )
+            else:
+                raise NotImplementedError(
+                    f"Camera type {camera_spec_dict[name].image_type} not supported"
+                )
+
+            # wrap camera tensor in a pytorch tensor
+            torch_camera_tensor = gymtorch.wrap_tensor(camera_tensor)
+
+            # store references to the tensor that gets updated when render_all_camera_sensors
+            env_camera_tensors[name] = torch_camera_tensor
+        return env_camera_tensors
+
+    def setup_env_cameras(self, env_ptr, camera_spec_dict):
+        camera_handles = {}
+        for name, camera_spec in camera_spec_dict.items():
+            camera_properties = gymapi.CameraProperties()
+            camera_properties.height = camera_spec.image_size[0]
+            camera_properties.width = camera_spec.image_size[1]
+            camera_properties.enable_tensors = True
+            camera_properties.horizontal_fov = camera_spec.horizontal_fov
+            if "near_plane" in camera_spec:
+                camera_properties.near_plane = camera_spec.near_plane
+
+            camera_handle = self.gym.create_camera_sensor(env_ptr, camera_properties)
+            camera_handles[name] = camera_handle
+
+            if camera_spec.is_body_camera:
+                actor_handle = self.gym.find_actor_handle(
+                    env_ptr, camera_spec.actor_name
+                )
+                robot_body_handle = self.gym.find_actor_rigid_body_handle(
+                    env_ptr, actor_handle, camera_spec.attach_link_name
+                )
+
+                self.gym.attach_camera_to_body(
+                    camera_handle,
+                    env_ptr,
+                    robot_body_handle,
+                    gymapi.Transform(
+                        gymapi.Vec3(*camera_spec.camera_pose[0]),
+                        gymapi.Quat(*camera_spec.camera_pose[1]),
+                    ),
+                    gymapi.FOLLOW_TRANSFORM,
+                )
+            else:
+                transform = gymapi.Transform(
+                    gymapi.Vec3(*camera_spec.camera_pose[0]),
+                    gymapi.Quat(*camera_spec.camera_pose[1]),
+                )
+                self.gym.set_camera_transform(camera_handle, env_ptr, transform)
+        return camera_handles
+
+    def get_default_camera_specs(self):
+        camera_specs = self.cfg["env"].get("camera_spec", {"hand_camera": dict(width=224, height=224)})
+        camera_spec_dict = {}
+        for k in camera_specs:
+            camera_spec = camera_specs[k]
+            camera_config = {
+                "name": k,
+                "is_body_camera": camera_spec.get("is_body_camera", False),
+                "actor_name": camera_spec.get("actor_name", "hand"),
+                "attach_link_name": camera_spec.get("attach_link_name", "palm_link"),
+                "use_collision_geometry": True,
+                "width": camera_spec.get("width", 64),
+                "height": camera_spec.get("height", 64),
+                "image_size": [camera_spec.get("width", 64), camera_spec.get("height", 64)],
+                "image_type": "rgb",
+                "horizontal_fov": 90.0,
+                # "position": [-0.1, 0.15, 0.15],
+                # "rotation": [1, 0, 0, 0],
+                "near_plane": 0.1,
+                "far_plane": 100,
+                "camera_pose": camera_spec.get("camera_pose", [[0.0, -0.35, 0.2], [0.0, 0.0, 0.85090352, 0.52532199]]),
+            }
+            camera_spec_dict[k] = OmegaConf.create(camera_config)
+
+        return camera_spec_dict
 
     def step(self, actions):
         if self.dr_randomizations.get('actions', None):

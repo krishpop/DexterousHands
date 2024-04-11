@@ -13,11 +13,16 @@ import numpy as np
 import os
 import random
 import torch
+from gym import spaces
 
 from bidexhands.utils.torch_jit_utils import *
 from bidexhands.tasks.hand_base.base_task import BaseTask
 from isaacgym import gymtorch
 from isaacgym import gymapi
+
+import matplotlib.pyplot as plt
+import os
+from datetime import datetime
 
 
 class ShadowHandScissors(BaseTask):
@@ -99,6 +104,8 @@ class ShadowHandScissors(BaseTask):
 
         self.transition_scale = self.cfg["env"]["transition_scale"]
         self.orientation_scale = self.cfg["env"]["orientation_scale"]
+        self.use_image_obs = self.cfg["env"].get("enableCameraSensors", False)
+        self.obs_dict = {}
 
         control_freq_inv = self.cfg["env"].get("controlFrequencyInv", 1)
         if self.reset_time > 0.0:
@@ -178,8 +185,38 @@ class ShadowHandScissors(BaseTask):
 
         self.camera_debug = self.cfg["env"].get("cameraDebug", False)
         self.point_cloud_debug = self.cfg["env"].get("pointCloudDebug", False)
+        if self.use_image_obs:
+            self.camera_spec_dict = self.get_default_camera_specs()
 
         super().__init__(cfg=self.cfg)
+        self.observation_space_dict = {
+            "right_hand_dof_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(24,), dtype=np.float32),
+            "right_hand_dof_vel": spaces.Box(low=-np.inf, high=np.inf, shape=(24,), dtype=np.float32),
+            "right_hand_dof_force": spaces.Box(low=-np.inf, high=np.inf, shape=(24,), dtype=np.float32),
+            "right_fingertip_state": spaces.Box(low=-np.inf, high=np.inf, shape=(65,), dtype=np.float32),
+            "right_fingertip_force": spaces.Box(low=-np.inf, high=np.inf, shape=(30,), dtype=np.float32),
+            "right_hand_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
+            "right_hand_euler": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
+            "right_hand_action": spaces.Box(low=-np.inf, high=np.inf, shape=(26,), dtype=np.float32),
+            "left_hand_dof_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(24,), dtype=np.float32),
+            "left_hand_dof_vel": spaces.Box(low=-np.inf, high=np.inf, shape=(24,), dtype=np.float32),
+            "left_hand_dof_force": spaces.Box(low=-np.inf, high=np.inf, shape=(24,), dtype=np.float32),
+            "left_fingertip_state": spaces.Box(low=-np.inf, high=np.inf, shape=(65,), dtype=np.float32),
+            "left_fingertip_force": spaces.Box(low=-np.inf, high=np.inf, shape=(30,), dtype=np.float32),
+            "left_hand_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
+            "left_hand_euler": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
+            "left_hand_action": spaces.Box(low=-np.inf, high=np.inf, shape=(26,), dtype=np.float32),
+            "object_pose": spaces.Box(low=-np.inf, high=np.inf, shape=(7,), dtype=np.float32),
+            "object_linvel": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
+            "object_angvel": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
+            "scissors_right_handle_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
+            "scissors_left_handle_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
+        }
+        if self.use_image_obs:
+            self.observation_space_dict.update({
+                key: spaces.Box(low=0, high=255, shape=(v.height, v.width, 3), dtype=np.uint8)
+                for key, v in self.camera_spec_dict.items()
+            })
 
         if self.viewer != None:
             cam_pos = gymapi.Vec3(10.0, 5.0, 1.0)
@@ -627,6 +664,10 @@ class ShadowHandScissors(BaseTask):
             self.envs.append(env_ptr)
             self.shadow_hands.append(shadow_hand_actor)
 
+        if self.use_image_obs:
+            if self.camera_spec_dict:
+                self.create_camera_actors()
+
         self.object_init_state = to_torch(self.object_init_state, device=self.device, dtype=torch.float).view(self.num_envs, 13)
         self.goal_states = self.object_init_state.clone()
         # self.goal_pose = self.goal_states[:, 0:7]
@@ -774,6 +815,8 @@ class ShadowHandScissors(BaseTask):
         self.fingertip_another_state = self.rigid_body_states[:, self.fingertip_another_handles][:, :, 0:13]
         self.fingertip_another_pos = self.rigid_body_states[:, self.fingertip_another_handles][:, :, 0:3]
 
+        self.obs_dict = self.compute_obs_dict(self.obs_dict)
+
         if self.obs_type == "full_state":
             self.compute_full_state()
         elif self.obs_type == "point_cloud":
@@ -782,7 +825,47 @@ class ShadowHandScissors(BaseTask):
         if self.asymmetric_obs:
             self.compute_full_state(True)
 
-    def compute_full_state(self, asymm_obs=False):
+    def compute_obs_dict(self, obs_dict={}):
+
+        # right hand
+        obs_dict['right_hand_dof_pos'] = unscale(self.shadow_hand_dof_pos,
+                                                 self.shadow_hand_dof_lower_limits, self.shadow_hand_dof_upper_limits)
+        obs_dict['right_hand_dof_vel'] = self.vel_obs_scale * self.shadow_hand_dof_vel
+        obs_dict['right_hand_dof_force'] = self.force_torque_obs_scale * self.dof_force_tensor[:, :24]
+        obs_dict['right_fingertip_state'] = self.fingertip_state.reshape(self.num_envs, 65)
+        obs_dict['right_fingertip_force'] = self.force_torque_obs_scale * self.vec_sensor_tensor[:, :30]
+        obs_dict['right_hand_pos'] = self.right_hand_pos
+        obs_dict['right_hand_euler'] = torch.cat([get_euler_xyz(self.hand_orientations[self.hand_indices, :])[0].unsqueeze(-1),
+                                                  get_euler_xyz(self.hand_orientations[self.hand_indices, :])[1].unsqueeze(-1),
+                                                  get_euler_xyz(self.hand_orientations[self.hand_indices, :])[2].unsqueeze(-1)], dim=-1)
+        obs_dict['right_hand_action'] = self.actions[:, :26]
+
+        # left hand
+        obs_dict['left_hand_dof_pos'] = unscale(self.shadow_hand_another_dof_pos,
+                                                self.shadow_hand_dof_lower_limits, self.shadow_hand_dof_upper_limits)
+        obs_dict['left_hand_dof_vel'] = self.vel_obs_scale * self.shadow_hand_another_dof_vel
+        obs_dict['left_hand_dof_force'] = self.force_torque_obs_scale * self.dof_force_tensor[:, 24:48]
+        obs_dict['left_fingertip_state'] = self.fingertip_another_state.reshape(self.num_envs, 65)
+        obs_dict['left_fingertip_force'] = self.force_torque_obs_scale * self.vec_sensor_tensor[:, 30:]
+        obs_dict['left_hand_pos'] = self.left_hand_pos
+        obs_dict['left_hand_euler'] = torch.cat([get_euler_xyz(self.hand_orientations[self.another_hand_indices, :])[0].unsqueeze(-1),
+                                                 get_euler_xyz(self.hand_orientations[self.another_hand_indices, :])[1].unsqueeze(-1),
+                                                 get_euler_xyz(self.hand_orientations[self.another_hand_indices, :])[2].unsqueeze(-1)], dim=-1)
+        obs_dict['left_hand_action'] = self.actions[:, 26:]
+
+        # object
+        obs_dict['object_pose'] = self.object_pose
+        obs_dict['object_linvel'] = self.object_linvel
+        obs_dict['object_angvel'] = self.vel_obs_scale * self.object_angvel
+        obs_dict['scissors_right_handle_pos'] = self.scissors_right_handle_pos
+        obs_dict['scissors_left_handle_pos'] = self.scissors_left_handle_pos
+
+        if self.use_image_obs:
+            camera_image_tensors_dict = self.get_camera_image_tensors_dict(obs_dict)
+            obs_dict.update(camera_image_tensors_dict)
+        return obs_dict
+
+    def compute_full_state(self, asymm_obs=False, obs_dict=None):
         """
         Compute the observations of all environment. The observation is composed of three parts: 
         the state values of the left and right hands, and the information of objects and target. 
@@ -815,58 +898,40 @@ class ShadowHandScissors(BaseTask):
         422 - 424	scissors right handle position
         425 - 427	scissors left handle position
         """
-        num_ft_states = 13 * int(self.num_fingertips / 2)  # 65
-        num_ft_force_torques = 6 * int(self.num_fingertips / 2)  # 30
+        if obs_dict is None:
+            obs_dict = self.obs_dict
 
-        self.obs_buf[:, 0:self.num_shadow_hand_dofs] = unscale(self.shadow_hand_dof_pos,
-                                                            self.shadow_hand_dof_lower_limits, self.shadow_hand_dof_upper_limits)
-        self.obs_buf[:, self.num_shadow_hand_dofs:2*self.num_shadow_hand_dofs] = self.vel_obs_scale * self.shadow_hand_dof_vel
-        self.obs_buf[:, 2*self.num_shadow_hand_dofs:3*self.num_shadow_hand_dofs] = self.force_torque_obs_scale * self.dof_force_tensor[:, :24]
-
-        fingertip_obs_start = 72  # 168 = 157 + 11
-        self.obs_buf[:, fingertip_obs_start:fingertip_obs_start + num_ft_states] = self.fingertip_state.reshape(self.num_envs, num_ft_states)
-        self.obs_buf[:, fingertip_obs_start + num_ft_states:fingertip_obs_start + num_ft_states +
-                    num_ft_force_torques] = self.force_torque_obs_scale * self.vec_sensor_tensor[:, :30]
-        
+        self.obs_buf[:, 0:self.num_shadow_hand_dofs] = obs_dict['right_hand_dof_pos']
+        self.obs_buf[:, self.num_shadow_hand_dofs:2*self.num_shadow_hand_dofs] = obs_dict['right_hand_dof_vel']
+        self.obs_buf[:, 2*self.num_shadow_hand_dofs:3*self.num_shadow_hand_dofs] = obs_dict['right_hand_dof_force']
+        fingertip_obs_start = 72  
+        self.obs_buf[:, fingertip_obs_start:fingertip_obs_start + 65] = obs_dict['right_fingertip_state']
+        self.obs_buf[:, fingertip_obs_start + 65:fingertip_obs_start + 95] = obs_dict['right_fingertip_force']
         hand_pose_start = fingertip_obs_start + 95
-        self.obs_buf[:, hand_pose_start:hand_pose_start + 3] = self.right_hand_pos
-        self.obs_buf[:, hand_pose_start+3:hand_pose_start+4] = get_euler_xyz(self.hand_orientations[self.hand_indices, :])[0].unsqueeze(-1)
-        self.obs_buf[:, hand_pose_start+4:hand_pose_start+5] = get_euler_xyz(self.hand_orientations[self.hand_indices, :])[1].unsqueeze(-1)
-        self.obs_buf[:, hand_pose_start+5:hand_pose_start+6] = get_euler_xyz(self.hand_orientations[self.hand_indices, :])[2].unsqueeze(-1)
-
+        self.obs_buf[:, hand_pose_start:hand_pose_start + 3] = obs_dict['right_hand_pos']
+        self.obs_buf[:, hand_pose_start+3:hand_pose_start+6] = obs_dict['right_hand_euler']
         action_obs_start = hand_pose_start + 6
-        self.obs_buf[:, action_obs_start:action_obs_start + 26] = self.actions[:, :26]
+        self.obs_buf[:, action_obs_start:action_obs_start + 26] = obs_dict['right_hand_action']
 
-        # another_hand
         another_hand_start = action_obs_start + 26
-        self.obs_buf[:, another_hand_start:self.num_shadow_hand_dofs + another_hand_start] = unscale(self.shadow_hand_another_dof_pos,
-                                                            self.shadow_hand_dof_lower_limits, self.shadow_hand_dof_upper_limits)
-        self.obs_buf[:, self.num_shadow_hand_dofs + another_hand_start:2*self.num_shadow_hand_dofs + another_hand_start] = self.vel_obs_scale * self.shadow_hand_another_dof_vel
-        self.obs_buf[:, 2*self.num_shadow_hand_dofs + another_hand_start:3*self.num_shadow_hand_dofs + another_hand_start] = self.force_torque_obs_scale * self.dof_force_tensor[:, 24:48]
-
+        self.obs_buf[:, another_hand_start:self.num_shadow_hand_dofs + another_hand_start] = obs_dict['left_hand_dof_pos']
+        self.obs_buf[:, self.num_shadow_hand_dofs + another_hand_start:2*self.num_shadow_hand_dofs + another_hand_start] = obs_dict['left_hand_dof_vel']
+        self.obs_buf[:, 2*self.num_shadow_hand_dofs + another_hand_start:3*self.num_shadow_hand_dofs + another_hand_start] = obs_dict['left_hand_dof_force']
         fingertip_another_obs_start = another_hand_start + 72
-        self.obs_buf[:, fingertip_another_obs_start:fingertip_another_obs_start + num_ft_states] = self.fingertip_another_state.reshape(self.num_envs, num_ft_states)
-        self.obs_buf[:, fingertip_another_obs_start + num_ft_states:fingertip_another_obs_start + num_ft_states +
-                    num_ft_force_torques] = self.force_torque_obs_scale * self.vec_sensor_tensor[:, 30:]
-
+        self.obs_buf[:, fingertip_another_obs_start:fingertip_another_obs_start + 65] = obs_dict['left_fingertip_state']
+        self.obs_buf[:, fingertip_another_obs_start + 65:fingertip_another_obs_start + 95] = obs_dict['left_fingertip_force']
         hand_another_pose_start = fingertip_another_obs_start + 95
-        self.obs_buf[:, hand_another_pose_start:hand_another_pose_start + 3] = self.left_hand_pos
-        self.obs_buf[:, hand_another_pose_start+3:hand_another_pose_start+4] = get_euler_xyz(self.hand_orientations[self.another_hand_indices, :])[0].unsqueeze(-1)
-        self.obs_buf[:, hand_another_pose_start+4:hand_another_pose_start+5] = get_euler_xyz(self.hand_orientations[self.another_hand_indices, :])[1].unsqueeze(-1)
-        self.obs_buf[:, hand_another_pose_start+5:hand_another_pose_start+6] = get_euler_xyz(self.hand_orientations[self.another_hand_indices, :])[2].unsqueeze(-1)
-
+        self.obs_buf[:, hand_another_pose_start:hand_another_pose_start + 3] = obs_dict['left_hand_pos']
+        self.obs_buf[:, hand_another_pose_start+3:hand_another_pose_start+6] = obs_dict['left_hand_euler']
         action_another_obs_start = hand_another_pose_start + 6
-        self.obs_buf[:, action_another_obs_start:action_another_obs_start + 26] = self.actions[:, 26:]
+        self.obs_buf[:, action_another_obs_start:action_another_obs_start + 26] = obs_dict['left_hand_action']
 
-        obj_obs_start = action_another_obs_start + 26  # 144
-        self.obs_buf[:, obj_obs_start:obj_obs_start + 7] = self.object_pose
-        self.obs_buf[:, obj_obs_start + 7:obj_obs_start + 10] = self.object_linvel
-        self.obs_buf[:, obj_obs_start + 10:obj_obs_start + 13] = self.vel_obs_scale * self.object_angvel
-        self.obs_buf[:, obj_obs_start + 13:obj_obs_start + 16] = self.scissors_right_handle_pos
-        self.obs_buf[:, obj_obs_start + 16:obj_obs_start + 19] = self.scissors_left_handle_pos
-        # goal_obs_start = obj_obs_start + 13  # 157 = 144 + 13
-        # self.obs_buf[:, goal_obs_start:goal_obs_start + 7] = self.goal_pose
-        # self.obs_buf[:, goal_obs_start + 7:goal_obs_start + 11] = quat_mul(self.object_rot, quat_conjugate(self.goal_rot))
+        obj_obs_start = action_another_obs_start + 26  
+        self.obs_buf[:, obj_obs_start:obj_obs_start + 7] = obs_dict['object_pose']
+        self.obs_buf[:, obj_obs_start + 7:obj_obs_start + 10] = obs_dict['object_linvel']
+        self.obs_buf[:, obj_obs_start + 10:obj_obs_start + 13] = obs_dict['object_angvel']
+        self.obs_buf[:, obj_obs_start + 13:obj_obs_start + 16] = obs_dict['scissors_right_handle_pos']
+        self.obs_buf[:, obj_obs_start + 16:obj_obs_start + 19] = obs_dict['scissors_left_handle_pos']
 
     def compute_point_cloud_observation(self, collect_demonstration=False):
         """

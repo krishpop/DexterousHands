@@ -41,6 +41,14 @@ env:
   successTolerance: 0.1
   printNumSuccesses: False
   maxConsecutiveSuccesses: 0
+  enableCameraSensors: true
+  camera_spec:
+    fixed_camera:
+      width: 224
+      height: 224
+      is_body_camera: false
+      actor_name: hand
+      camera_pose: [[-1., 0., 1.34], [0.0, 0.0, 0.0, -1.]] 
 
   asset:
     assetRoot: "../assets"

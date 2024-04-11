@@ -13,7 +13,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 
-from bidexhands.algorithms.rl.ppo import RolloutStorage
+from bidexhands.algorithms.rl.ppo import RolloutStorage, RolloutDataset
 from bidexhands.algorithms.rl.ppo import ActorCritic
 
 import copy
@@ -54,12 +54,20 @@ class PPO:
         self.record_episodes = cfg_train.get("record_episodes", False)
         self.num_rollouts = cfg_train.get("num_rollouts", 1000)
 
+        if self.record_episodes: 
+            self.hdf5_filepath = os.path.join(log_dir, f"rollouts_{self.num_rollouts}.hdf5")
+            print(f"recording episodes to {self.hdf5_filepath}")
+
         # PPO components
         self.vec_env = vec_env
         self.actor_critic = ActorCritic(self.observation_space.shape, self.state_space.shape, self.action_space.shape,
                                                self.init_noise_std, self.model_cfg, asymmetric=asymmetric)
         self.actor_critic.to(self.device)
-        self.storage = RolloutStorage(self.vec_env.num_envs, self.num_transitions_per_env, self.observation_space.shape,
+        if self.record_episodes:
+            self.storage = RolloutDataset(self.vec_env.num_envs, self.num_transitions_per_env, self.vec_env.task.observation_space_dict,
+                                      self.action_space.shape, self.hdf5_filepath, self.num_rollouts, self.device, sampler)
+        else:
+            self.storage = RolloutStorage(self.vec_env.num_envs, self.num_transitions_per_env, self.observation_space.shape,
                                       self.state_space.shape, self.action_space.shape, self.device, sampler)
         self.optimizer = optim.Adam(self.actor_critic.parameters(), lr=self.learning_rate)
 
@@ -77,8 +85,6 @@ class PPO:
 
         # Log
         self.log_dir = log_dir
-        if self.record_episodes: 
-            self.hdf5_filepath = os.path.join(self.log_dir, "episodes.hdf5")
         self.print_log = print_log
         self.writer = SummaryWriter(log_dir=self.log_dir, flush_secs=10)
         self.tot_timesteps = 0
@@ -114,11 +120,12 @@ class PPO:
                     actions = self.actor_critic.act_inference(current_obs)
                     # Step the vec_environment
                     next_obs, rews, dones, infos = self.vec_env.step(actions)
-                    if self.record_episodes:
-                        self.storage.add_transitions(current_obs, current_states, actions, rews, dones, torch.zeros_like(rews), torch.zeros_like(rews), torch.zeros_like(actions), torch.zeros_like(actions))
+                    if self.record_episodes and self.num_rollouts > 0:
+                        self.storage.add_rollout_transitions(self.vec_env.task.obs_dict, actions, rews, dones)
                         if dones.any():
-                            self.storage.save_hdf5(self.hdf5_filepath)
-                            self.storage.clear()
+                            rollouts = self.storage.save_hdf5()
+                            if rollouts >= self.num_rollouts:
+                                return
                     current_obs.copy_(next_obs)
                     current_states.copy_(self.vec_env.get_state())
         else:
