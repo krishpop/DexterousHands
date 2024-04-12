@@ -35,4 +35,4 @@ learn:
   asymmetric: False
 
 record_episodes: True
-num_rollouts: 1000
+num_rollouts: 5000

@@ -15,6 +15,7 @@ import random
 import torch
 
 from gym import spaces
+from omegaconf import OmegaConf
 from bidexhands.utils.torch_jit_utils import *
 from bidexhands.tasks.hand_base.base_task import BaseTask
 from isaacgym import gymtorch
