@@ -14,6 +14,7 @@ import os
 import random
 import torch
 
+from omegaconf import OmegaConf
 from gym import spaces
 from omegaconf import OmegaConf
 from bidexhands.utils.torch_jit_utils import *
@@ -757,8 +758,8 @@ class ShadowHandSwitch(BaseTask):
             self.max_consecutive_successes, self.av_factor, (self.object_type == "pen")
         )
 
-        self.extras['successes'] = self.successes
-        self.extras['consecutive_successes'] = self.consecutive_successes
+        self.obs_dict['successes'] = self.extras['successes'] = self.successes
+        self.obs_dict['consecutive_successes'] = self.extras['consecutive_successes'] = self.consecutive_successes
 
         if self.print_success_stat:
             self.total_resets = self.total_resets + self.reset_buf.sum()
@@ -904,7 +905,7 @@ class ShadowHandSwitch(BaseTask):
         obs_dict['switch_left_handle_pos'] = self.switch_left_handle_pos
 
         if self.use_image_obs:
-            camera_image_tensors_dict = self.get_camera_image_tensors_dict()
+            camera_image_tensors_dict = self.get_camera_image_tensors_dict(obs_dict)
             obs_dict.update(camera_image_tensors_dict)
         return obs_dict
 

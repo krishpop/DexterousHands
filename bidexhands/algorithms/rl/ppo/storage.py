@@ -1,5 +1,6 @@
 import torch
 import h5py
+import os
 from tqdm import tqdm
 from torch.utils.data.sampler import BatchSampler, SequentialSampler, SubsetRandomSampler
 
@@ -142,6 +143,10 @@ class RolloutDataset(RolloutStorage):
         self.num_rollouts = num_rollouts
         if self.num_rollouts > 0:
             self.pbar = tqdm(total=self.num_rollouts, desc="Saving demos")
+        if os.path.exists(self.save_path):
+            with h5py.File(self.save_path, "r") as f:
+                if "data" in f:
+                    self.pbar = tqdm(total=self.num_rollouts, desc="Saving demos", initial=len(f["data"]))
 
 
     def save_hdf5(self):
