@@ -129,8 +129,9 @@ class BaseTask():
 
         return sim
 
-    def get_camera_image_tensors_dict(self, obs_dict):
+    def get_camera_image_tensors_dict(self, obs_dict=None):
         # transforms and information must be communicated from the physics simulation into the graphics system
+        obs_dict = obs_dict or self.obs_dict
         if self.device != "cpu":
             self.gym.fetch_results(self.sim, True)
         self.gym.step_graphics(self.sim)
@@ -163,7 +164,7 @@ class BaseTask():
                     ].clone()
             elif camera_spec["image_type"] == "depth":
                 num_channels = 1
-                camera_images = self.obs_dict.get(
+                camera_images = obs_dict.get(
                     name,
                     torch.zeros(
                         (
