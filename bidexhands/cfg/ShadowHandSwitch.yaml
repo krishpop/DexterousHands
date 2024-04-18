@@ -51,7 +51,7 @@ env:
       camera_pose: [[-1., 0., 1.34], [0.0, 0.0, 0.0, -1.]] 
 
   asset:
-    assetRoot: "../assets"
+    assetRoot: "../../assets"
     assetFileName: "mjcf/open_ai_assets/hand/shadow_hand.xml"
     assetFileNameBlock: "urdf/objects/cube_multicolor.urdf"
     assetFileNameEgg: "mjcf/open_ai_assets/hand/egg.xml"

@@ -36,4 +36,4 @@ learn:
 
 record_episodes: True
 num_rollouts: 500
-success_reward_filter: 2.0
+success_reward_filter: 

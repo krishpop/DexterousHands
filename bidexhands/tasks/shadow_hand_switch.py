@@ -327,6 +327,8 @@ class ShadowHandSwitch(BaseTask):
 
         if "asset" in self.cfg["env"]:
             asset_root = self.cfg["env"]["asset"].get("assetRoot", asset_root)
+            if not os.path.isabs(asset_root):
+                asset_root = os.path.abspath(os.path.join(os.path.dirname(__file__), asset_root))
             shadow_hand_asset_file = self.cfg["env"]["asset"].get("assetFileName", shadow_hand_asset_file)
 
         object_asset_file = self.asset_files_dict[self.object_type]
