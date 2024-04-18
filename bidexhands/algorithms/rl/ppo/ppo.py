@@ -65,7 +65,8 @@ class PPO:
         self.actor_critic.to(self.device)
         if self.record_episodes:
             self.storage = RolloutDataset(self.vec_env.num_envs, self.num_transitions_per_env, self.vec_env.task.observation_space_dict,
-                                      self.action_space.shape, self.hdf5_filepath, self.num_rollouts, self.device, sampler)
+                                      self.action_space.shape, self.hdf5_filepath, self.num_rollouts, self.device, sampler, 
+                                      self.cfg_train.get("success_reward_filter", None))
         else:
             self.storage = RolloutStorage(self.vec_env.num_envs, self.num_transitions_per_env, self.observation_space.shape,
                                       self.state_space.shape, self.action_space.shape, self.device, sampler)

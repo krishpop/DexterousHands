@@ -114,6 +114,7 @@ class RolloutDataset(RolloutStorage):
         num_rollouts,
         device="cpu",
         sampler="sequential",
+        success_reward_filter=None,
     ):
 
         self.device = device
@@ -139,6 +140,7 @@ class RolloutDataset(RolloutStorage):
 
         self.step = 0
         self.step_vec = torch.zeros(num_envs, device=self.device, dtype=int)
+        self.success_reward_filter = success_reward_filter  # if float, only save demos where the last reward is greater than this
         self.save_path = save_path
         self.num_rollouts = num_rollouts
         if self.num_rollouts > 0:
@@ -169,6 +171,10 @@ class RolloutDataset(RolloutStorage):
                 ep = len(grp)
                 if ep >= self.num_rollouts:
                     break
+                # If done and not a success, continue
+                # check if last reward is greater than self.success_reward_filter
+                if self.success_reward_filter and self.rewards[-1, env_idx] < self.success_reward_filter:
+                    continue
                 grp_ep = grp.create_group(f"demo_{ep}")
                 grp_ep.attrs["num_samples"] = int(self.step_vec[env_idx]) - 1
                 grp_obs = grp_ep.create_group("obs")
