@@ -53,8 +53,9 @@ class PPO:
         self.learning_rate=learn_cfg["optim_stepsize"]
         self.record_episodes = cfg_train.get("record_episodes", False)
         self.num_rollouts = cfg_train.get("num_rollouts", 1000)
+        self.hdf5_filepath = cfg_train.get("hdf5_filepath", None)
 
-        if self.record_episodes: 
+        if self.record_episodes and not self.hdf5_filepath: 
             self.hdf5_filepath = os.path.join(log_dir, f"rollouts_{self.num_rollouts}.hdf5")
             print(f"recording episodes to {self.hdf5_filepath}")
 

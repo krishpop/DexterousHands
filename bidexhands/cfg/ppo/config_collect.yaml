@@ -37,3 +37,4 @@ learn:
 record_episodes: True
 num_rollouts: 500
 success_reward_filter: 
+hdf5_filepath: rollouts_500.hdf5
