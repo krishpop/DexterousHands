@@ -638,6 +638,10 @@ class ShadowHandBottleCap(BaseTask):
             self.envs.append(env_ptr)
             self.shadow_hands.append(shadow_hand_actor)
 
+        if self.use_image_obs:
+            if self.camera_spec_dict:
+                self.create_camera_actors()
+
         self.object_init_state = to_torch(self.object_init_state, device=self.device, dtype=torch.float).view(self.num_envs, 13)
         self.goal_states = self.object_init_state.clone()
         # self.goal_pose = self.goal_states[:, 0:7]
