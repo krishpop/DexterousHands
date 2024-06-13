@@ -18,18 +18,20 @@ from bidexhands.algorithms.rl.ppo import ActorCritic
 
 import copy
 
+
 class PPO:
-    def __init__(self,
-                 vec_env,
-                 cfg_train,
-                 device='cpu',
-                 sampler='sequential',
-                 log_dir='run',
-                 is_testing=False,
-                 print_log=True,
-                 apply_reset=False,
-                 asymmetric=False
-                 ):
+    def __init__(
+        self,
+        vec_env,
+        cfg_train,
+        device="cpu",
+        sampler="sequential",
+        log_dir="run",
+        is_testing=False,
+        print_log=True,
+        apply_reset=False,
+        asymmetric=False,
+    ):
 
         if not isinstance(vec_env.observation_space, Space):
             raise TypeError("vec_env.observation_space must be a gym Space")
@@ -49,28 +51,49 @@ class PPO:
         self.step_size = learn_cfg["optim_stepsize"]
         self.init_noise_std = learn_cfg.get("init_noise_std", 0.3)
         self.model_cfg = self.cfg_train["policy"]
-        self.num_transitions_per_env=learn_cfg["nsteps"]
-        self.learning_rate=learn_cfg["optim_stepsize"]
+        self.num_transitions_per_env = learn_cfg["nsteps"]
+        self.learning_rate = learn_cfg["optim_stepsize"]
         self.record_episodes = cfg_train.get("record_episodes", False)
         self.num_rollouts = cfg_train.get("num_rollouts", 1000)
         self.hdf5_filepath = cfg_train.get("hdf5_filepath", None)
 
-        if self.record_episodes and not self.hdf5_filepath: 
+        if self.record_episodes and not self.hdf5_filepath:
             self.hdf5_filepath = os.path.join(log_dir, f"rollouts_{self.num_rollouts}.hdf5")
             print(f"recording episodes to {self.hdf5_filepath}")
 
         # PPO components
         self.vec_env = vec_env
-        self.actor_critic = ActorCritic(self.observation_space.shape, self.state_space.shape, self.action_space.shape,
-                                               self.init_noise_std, self.model_cfg, asymmetric=asymmetric)
+        self.actor_critic = ActorCritic(
+            self.observation_space.shape,
+            self.state_space.shape,
+            self.action_space.shape,
+            self.init_noise_std,
+            self.model_cfg,
+            asymmetric=asymmetric,
+        )
         self.actor_critic.to(self.device)
         if self.record_episodes:
-            self.storage = RolloutDataset(self.vec_env.num_envs, self.num_transitions_per_env, self.vec_env.task.observation_space_dict,
-                                      self.action_space.shape, self.hdf5_filepath, self.num_rollouts, self.device, sampler, 
-                                      self.cfg_train.get("success_reward_filter", None))
+            self.storage = RolloutDataset(
+                self.vec_env.num_envs,
+                self.num_transitions_per_env,
+                self.vec_env.task.observation_space_dict,
+                self.action_space.shape,
+                self.hdf5_filepath,
+                self.num_rollouts,
+                self.device,
+                sampler,
+                self.cfg_train.get("success_reward_filter", None),
+            )
         else:
-            self.storage = RolloutStorage(self.vec_env.num_envs, self.num_transitions_per_env, self.observation_space.shape,
-                                      self.state_space.shape, self.action_space.shape, self.device, sampler)
+            self.storage = RolloutStorage(
+                self.vec_env.num_envs,
+                self.num_transitions_per_env,
+                self.observation_space.shape,
+                self.state_space.shape,
+                self.action_space.shape,
+                self.device,
+                sampler,
+            )
         self.optimizer = optim.Adam(self.actor_critic.parameters(), lr=self.learning_rate)
 
         # PPO parameters
@@ -109,6 +132,7 @@ class PPO:
         torch.save(self.actor_critic.state_dict(), path)
 
     def run(self, num_learning_iterations, log_interval=1):
+        breakpoint()
         current_obs = self.vec_env.reset()
         current_states = self.vec_env.get_state()
 
@@ -154,7 +178,9 @@ class PPO:
                     next_obs, rews, dones, infos = self.vec_env.step(actions)
                     next_states = self.vec_env.get_state()
                     # Record the transition
-                    self.storage.add_transitions(current_obs, current_states, actions, rews, dones, values, actions_log_prob, mu, sigma)
+                    self.storage.add_transitions(
+                        current_obs, current_states, actions, rews, dones, values, actions_log_prob, mu, sigma
+                    )
                     current_obs.copy_(next_obs)
                     current_states.copy_(next_states)
                     # Book keeping
@@ -192,72 +218,78 @@ class PPO:
                 if self.print_log:
                     self.log(locals())
                 if it % log_interval == 0:
-                    self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(it)))
+                    self.save(os.path.join(self.log_dir, "model_{}.pt".format(it)))
                 ep_infos.clear()
-            self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(num_learning_iterations)))
+            self.save(os.path.join(self.log_dir, "model_{}.pt".format(num_learning_iterations)))
 
     def log(self, locs, width=80, pad=35):
         self.tot_timesteps += self.num_transitions_per_env * self.vec_env.num_envs
-        self.tot_time += locs['collection_time'] + locs['learn_time']
-        iteration_time = locs['collection_time'] + locs['learn_time']
+        self.tot_time += locs["collection_time"] + locs["learn_time"]
+        iteration_time = locs["collection_time"] + locs["learn_time"]
 
-        ep_string = f''
-        if locs['ep_infos']:
-            for key in locs['ep_infos'][0]:
+        ep_string = f""
+        if locs["ep_infos"]:
+            for key in locs["ep_infos"][0]:
                 infotensor = torch.tensor([], device=self.device)
-                for ep_info in locs['ep_infos']:
+                for ep_info in locs["ep_infos"]:
                     infotensor = torch.cat((infotensor, ep_info[key].to(self.device)))
                 value = torch.mean(infotensor)
-                self.writer.add_scalar('Episode/' + key, value, locs['it'])
+                self.writer.add_scalar("Episode/" + key, value, locs["it"])
                 ep_string += f"""{f'Mean episode {key}:':>{pad}} {value:.4f}\n"""
         mean_std = self.actor_critic.log_std.exp().mean()
 
-        self.writer.add_scalar('Loss/value_function', locs['mean_value_loss'], locs['it'])
-        self.writer.add_scalar('Loss/surrogate', locs['mean_surrogate_loss'], locs['it'])
-        self.writer.add_scalar('Policy/mean_noise_std', mean_std.item(), locs['it'])
-        if len(locs['rewbuffer']) > 0:
-            self.writer.add_scalar('Train/mean_reward', statistics.mean(locs['rewbuffer']), locs['it'])
-            self.writer.add_scalar('Train/mean_episode_length', statistics.mean(locs['lenbuffer']), locs['it'])
-            self.writer.add_scalar('Train/mean_reward/time', statistics.mean(locs['rewbuffer']), self.tot_time)
-            self.writer.add_scalar('Train/mean_episode_length/time', statistics.mean(locs['lenbuffer']), self.tot_time)
+        self.writer.add_scalar("Loss/value_function", locs["mean_value_loss"], locs["it"])
+        self.writer.add_scalar("Loss/surrogate", locs["mean_surrogate_loss"], locs["it"])
+        self.writer.add_scalar("Policy/mean_noise_std", mean_std.item(), locs["it"])
+        if len(locs["rewbuffer"]) > 0:
+            self.writer.add_scalar("Train/mean_reward", statistics.mean(locs["rewbuffer"]), locs["it"])
+            self.writer.add_scalar("Train/mean_episode_length", statistics.mean(locs["lenbuffer"]), locs["it"])
+            self.writer.add_scalar("Train/mean_reward/time", statistics.mean(locs["rewbuffer"]), self.tot_time)
+            self.writer.add_scalar("Train/mean_episode_length/time", statistics.mean(locs["lenbuffer"]), self.tot_time)
 
-        self.writer.add_scalar('Train2/mean_reward/step', locs['mean_reward'], locs['it'])
-        self.writer.add_scalar('Train2/mean_episode_length/episode', locs['mean_trajectory_length'], locs['it'])
+        self.writer.add_scalar("Train2/mean_reward/step", locs["mean_reward"], locs["it"])
+        self.writer.add_scalar("Train2/mean_episode_length/episode", locs["mean_trajectory_length"], locs["it"])
 
-        fps = int(self.num_transitions_per_env * self.vec_env.num_envs / (locs['collection_time'] + locs['learn_time']))
+        fps = int(self.num_transitions_per_env * self.vec_env.num_envs / (locs["collection_time"] + locs["learn_time"]))
 
         str = f" \033[1m Learning iteration {locs['it']}/{locs['num_learning_iterations']} \033[0m "
 
-        if len(locs['rewbuffer']) > 0:
-            log_string = (f"""{'#' * width}\n"""
-                          f"""{str.center(width, ' ')}\n\n"""
-                          f"""{'Computation:':>{pad}} {fps:.0f} steps/s (collection: {locs[
+        if len(locs["rewbuffer"]) > 0:
+            log_string = (
+                f"""{'#' * width}\n"""
+                f"""{str.center(width, ' ')}\n\n"""
+                f"""{'Computation:':>{pad}} {fps:.0f} steps/s (collection: {locs[
                               'collection_time']:.3f}s, learning {locs['learn_time']:.3f}s)\n"""
-                          f"""{'Value function loss:':>{pad}} {locs['mean_value_loss']:.4f}\n"""
-                          f"""{'Surrogate loss:':>{pad}} {locs['mean_surrogate_loss']:.4f}\n"""
-                          f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n"""
-                          f"""{'Mean reward:':>{pad}} {statistics.mean(locs['rewbuffer']):.2f}\n"""
-                          f"""{'Mean episode length:':>{pad}} {statistics.mean(locs['lenbuffer']):.2f}\n"""
-                          f"""{'Mean reward/step:':>{pad}} {locs['mean_reward']:.2f}\n"""
-                          f"""{'Mean episode length/episode:':>{pad}} {locs['mean_trajectory_length']:.2f}\n""")
+                f"""{'Value function loss:':>{pad}} {locs['mean_value_loss']:.4f}\n"""
+                f"""{'Surrogate loss:':>{pad}} {locs['mean_surrogate_loss']:.4f}\n"""
+                f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n"""
+                f"""{'Mean reward:':>{pad}} {statistics.mean(locs['rewbuffer']):.2f}\n"""
+                f"""{'Mean episode length:':>{pad}} {statistics.mean(locs['lenbuffer']):.2f}\n"""
+                f"""{'Mean reward/step:':>{pad}} {locs['mean_reward']:.2f}\n"""
+                f"""{'Mean episode length/episode:':>{pad}} {locs['mean_trajectory_length']:.2f}\n"""
+            )
         else:
-            log_string = (f"""{'#' * width}\n"""
-                          f"""{str.center(width, ' ')}\n\n"""
-                          f"""{'Computation:':>{pad}} {fps:.0f} steps/s (collection: {locs[
+            log_string = (
+                f"""{'#' * width}\n"""
+                f"""{str.center(width, ' ')}\n\n"""
+                f"""{'Computation:':>{pad}} {fps:.0f} steps/s (collection: {locs[
                             'collection_time']:.3f}s, learning {locs['learn_time']:.3f}s)\n"""
-                          f"""{'Value function loss:':>{pad}} {locs['mean_value_loss']:.4f}\n"""
-                          f"""{'Surrogate loss:':>{pad}} {locs['mean_surrogate_loss']:.4f}\n"""
-                          f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n"""
-                          f"""{'Mean reward/step:':>{pad}} {locs['mean_reward']:.2f}\n"""
-                          f"""{'Mean episode length/episode:':>{pad}} {locs['mean_trajectory_length']:.2f}\n""")
+                f"""{'Value function loss:':>{pad}} {locs['mean_value_loss']:.4f}\n"""
+                f"""{'Surrogate loss:':>{pad}} {locs['mean_surrogate_loss']:.4f}\n"""
+                f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n"""
+                f"""{'Mean reward/step:':>{pad}} {locs['mean_reward']:.2f}\n"""
+                f"""{'Mean episode length/episode:':>{pad}} {locs['mean_trajectory_length']:.2f}\n"""
+            )
 
         log_string += ep_string
-        log_string += (f"""{'-' * width}\n"""
-                       f"""{'Total timesteps:':>{pad}} {self.tot_timesteps}\n"""
-                       f"""{'Iteration time:':>{pad}} {iteration_time:.2f}s\n"""
-                       f"""{'Total time:':>{pad}} {self.tot_time:.2f}s\n"""
-                       f"""{'ETA:':>{pad}} {self.tot_time / (locs['it'] + 1) * (
-                               locs['num_learning_iterations'] - locs['it']):.1f}s\n""")
+        log_string += (
+            f"""{'-' * width}\n"""
+            f"""{'Total timesteps:':>{pad}} {self.tot_timesteps}\n"""
+            f"""{'Iteration time:':>{pad}} {iteration_time:.2f}s\n"""
+            f"""{'Total time:':>{pad}} {self.tot_time:.2f}s\n"""
+            f"""{'ETA:':>{pad}} {self.tot_time / (locs['it'] + 1) * (
+                               locs['num_learning_iterations'] - locs['it']):.1f}s\n"""
+        )
         print(log_string)
 
     def update(self):
@@ -283,15 +315,21 @@ class PPO:
                 old_mu_batch = self.storage.mu.view(-1, self.storage.actions.size(-1))[indices]
                 old_sigma_batch = self.storage.sigma.view(-1, self.storage.actions.size(-1))[indices]
 
-                actions_log_prob_batch, entropy_batch, value_batch, mu_batch, sigma_batch = self.actor_critic.evaluate(obs_batch,
-                                                                                                                       states_batch,
-                                                                                                                       actions_batch)
+                actions_log_prob_batch, entropy_batch, value_batch, mu_batch, sigma_batch = self.actor_critic.evaluate(
+                    obs_batch, states_batch, actions_batch
+                )
 
                 # KL
-                if self.desired_kl != None and self.schedule == 'adaptive':
+                if self.desired_kl != None and self.schedule == "adaptive":
 
                     kl = torch.sum(
-                        sigma_batch - old_sigma_batch + (torch.square(old_sigma_batch.exp()) + torch.square(old_mu_batch - mu_batch)) / (2.0 * torch.square(sigma_batch.exp())) - 0.5, axis=-1)
+                        sigma_batch
+                        - old_sigma_batch
+                        + (torch.square(old_sigma_batch.exp()) + torch.square(old_mu_batch - mu_batch))
+                        / (2.0 * torch.square(sigma_batch.exp()))
+                        - 0.5,
+                        axis=-1,
+                    )
                     kl_mean = torch.mean(kl)
 
                     if kl_mean > self.desired_kl * 2.0:
@@ -300,19 +338,21 @@ class PPO:
                         self.step_size = min(1e-2, self.step_size * 1.5)
 
                     for param_group in self.optimizer.param_groups:
-                        param_group['lr'] = self.step_size
+                        param_group["lr"] = self.step_size
 
                 # Surrogate loss
                 ratio = torch.exp(actions_log_prob_batch - torch.squeeze(old_actions_log_prob_batch))
                 surrogate = -torch.squeeze(advantages_batch) * ratio
-                surrogate_clipped = -torch.squeeze(advantages_batch) * torch.clamp(ratio, 1.0 - self.clip_param,
-                                                                                   1.0 + self.clip_param)
+                surrogate_clipped = -torch.squeeze(advantages_batch) * torch.clamp(
+                    ratio, 1.0 - self.clip_param, 1.0 + self.clip_param
+                )
                 surrogate_loss = torch.max(surrogate, surrogate_clipped).mean()
 
                 # Value function loss
                 if self.use_clipped_value_loss:
-                    value_clipped = target_values_batch + (value_batch - target_values_batch).clamp(-self.clip_param,
-                                                                                                    self.clip_param)
+                    value_clipped = target_values_batch + (value_batch - target_values_batch).clamp(
+                        -self.clip_param, self.clip_param
+                    )
                     value_losses = (value_batch - returns_batch).pow(2)
                     value_losses_clipped = (value_clipped - returns_batch).pow(2)
                     value_loss = torch.max(value_losses, value_losses_clipped).mean()

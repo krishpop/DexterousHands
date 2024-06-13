@@ -13,6 +13,7 @@ import numpy as np
 import os
 import random
 import torch
+from gym import spaces
 
 from bidexhands.utils.torch_jit_utils import *
 from bidexhands.tasks.hand_base.base_task import BaseTask
@@ -100,6 +101,8 @@ class ShadowHandBottleCap(BaseTask):
 
         self.transition_scale = self.cfg["env"]["transition_scale"]
         self.orientation_scale = self.cfg["env"]["orientation_scale"]
+        self.use_image_obs = self.cfg["env"].get("enableCameraSensors", False)
+        self.obs_dict = {}
 
         control_freq_inv = self.cfg["env"].get("controlFrequencyInv", 1)
         if self.reset_time > 0.0:
@@ -180,9 +183,34 @@ class ShadowHandBottleCap(BaseTask):
 
         self.camera_debug = self.cfg["env"].get("cameraDebug", False)
         self.point_cloud_debug = self.cfg["env"].get("pointCloudDebug", False)
+        if self.use_image_obs:
+            self.camera_spec_dict = self.get_default_camera_specs()
 
         super().__init__(cfg=self.cfg)
-
+        self.observation_space_dict = {
+            "right_hand_dof_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(24,), dtype=np.float32),
+            "right_hand_dof_vel": spaces.Box(low=-np.inf, high=np.inf, shape=(24,), dtype=np.float32),
+            "right_hand_dof_force": spaces.Box(low=-np.inf, high=np.inf, shape=(24,), dtype=np.float32),
+            "right_fingertip_state": spaces.Box(low=-np.inf, high=np.inf, shape=(65,), dtype=np.float32),
+            "right_fingertip_force": spaces.Box(low=-np.inf, high=np.inf, shape=(30,), dtype=np.float32),
+            "right_hand_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
+            "right_hand_euler": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
+            "right_hand_action": spaces.Box(low=-np.inf, high=np.inf, shape=(26,), dtype=np.float32),
+            "left_hand_dof_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(24,), dtype=np.float32),
+            "left_hand_dof_vel": spaces.Box(low=-np.inf, high=np.inf, shape=(24,), dtype=np.float32),
+            "left_hand_dof_force": spaces.Box(low=-np.inf, high=np.inf, shape=(24,), dtype=np.float32),
+            "left_fingertip_state": spaces.Box(low=-np.inf, high=np.inf, shape=(65,), dtype=np.float32),
+            "left_fingertip_force": spaces.Box(low=-np.inf, high=np.inf, shape=(30,), dtype=np.float32),
+            "left_hand_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
+            "left_hand_euler": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
+            "left_hand_action": spaces.Box(low=-np.inf, high=np.inf, shape=(26,), dtype=np.float32),
+            "object_pose": spaces.Box(low=-np.inf, high=np.inf, shape=(7,), dtype=np.float32),
+            "object_linvel": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
+            "object_angvel": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
+            "bottle_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
+            "bottle_cap_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
+            "bottle_cap_up": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
+        }
         if self.viewer != None:
             cam_pos = gymapi.Vec3(10.0, 5.0, 1.0)
             cam_target = gymapi.Vec3(6.0, 5.0, 0.0)
@@ -733,6 +761,8 @@ class ShadowHandBottleCap(BaseTask):
         self.fingertip_another_state = self.rigid_body_states[:, self.fingertip_another_handles][:, :, 0:13]
         self.fingertip_another_pos = self.rigid_body_states[:, self.fingertip_another_handles][:, :, 0:3]
 
+        self.obs_dict = self.compute_obs_dict(self.obs_dict)
+
         if self.obs_type == "full_state":
             self.compute_full_state()
         elif self.obs_type == "point_cloud":
@@ -740,6 +770,48 @@ class ShadowHandBottleCap(BaseTask):
 
         if self.asymmetric_obs:
             self.compute_full_state(True)
+
+
+    def compute_obs_dict(self, obs_dict={}):
+
+        # right hand
+        obs_dict['right_hand_dof_pos'] = unscale(self.shadow_hand_dof_pos,
+                                                 self.shadow_hand_dof_lower_limits, self.shadow_hand_dof_upper_limits)
+        obs_dict['right_hand_dof_vel'] = self.vel_obs_scale * self.shadow_hand_dof_vel
+        obs_dict['right_hand_dof_force'] = self.force_torque_obs_scale * self.dof_force_tensor[:, :24]
+        obs_dict['right_fingertip_state'] = self.fingertip_state.reshape(self.num_envs, 65)
+        obs_dict['right_fingertip_force'] = self.force_torque_obs_scale * self.vec_sensor_tensor[:, :30]
+        obs_dict['right_hand_pos'] = self.right_hand_pos
+        obs_dict['right_hand_euler'] = torch.cat([get_euler_xyz(self.hand_orientations[self.hand_indices, :])[0].unsqueeze(-1),
+                                                  get_euler_xyz(self.hand_orientations[self.hand_indices, :])[1].unsqueeze(-1),
+                                                  get_euler_xyz(self.hand_orientations[self.hand_indices, :])[2].unsqueeze(-1)], dim=-1)
+        obs_dict['right_hand_action'] = self.actions[:, :26]
+
+        # left hand
+        obs_dict['left_hand_dof_pos'] = unscale(self.shadow_hand_another_dof_pos,
+                                                self.shadow_hand_dof_lower_limits, self.shadow_hand_dof_upper_limits)
+        obs_dict['left_hand_dof_vel'] = self.vel_obs_scale * self.shadow_hand_another_dof_vel
+        obs_dict['left_hand_dof_force'] = self.force_torque_obs_scale * self.dof_force_tensor[:, 24:48]
+        obs_dict['left_fingertip_state'] = self.fingertip_another_state.reshape(self.num_envs, 65)
+        obs_dict['left_fingertip_force'] = self.force_torque_obs_scale * self.vec_sensor_tensor[:, 30:]
+        obs_dict['left_hand_pos'] = self.left_hand_pos
+        obs_dict['left_hand_euler'] = torch.cat([get_euler_xyz(self.hand_orientations[self.another_hand_indices, :])[0].unsqueeze(-1),
+                                                 get_euler_xyz(self.hand_orientations[self.another_hand_indices, :])[1].unsqueeze(-1),
+                                                 get_euler_xyz(self.hand_orientations[self.another_hand_indices, :])[2].unsqueeze(-1)], dim=-1)
+        obs_dict['left_hand_action'] = self.actions[:, 26:]
+
+        # object
+        obs_dict['object_pose'] = self.object_pose
+        obs_dict['object_linvel'] = self.object_linvel
+        obs_dict['object_angvel'] = self.vel_obs_scale * self.object_angvel
+        obs_dict['bottle_pos'] = self.bottle_pos
+        obs_dict['bottle_cap_pos'] = self.bottle_cap_pos
+        obs_dict['bottle_cap_up'] = self.bottle_cap_up
+
+        if self.use_image_obs:
+            camera_image_tensors_dict = self.get_camera_image_tensors_dict(obs_dict)
+            obs_dict.update(camera_image_tensors_dict)
+        return obs_dict
 
     def compute_full_state(self, asymm_obs=False):
         """

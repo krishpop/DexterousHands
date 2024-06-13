@@ -84,7 +84,7 @@ def retrieve_cfg(args, use_rlg_config=False):
     elif args.task in ["ShadowHandMetaMT4", "ShadowHandMetaMT1"]:
         return os.path.join(args.logdir, "{}/{}/{}".format(args.task, args.algo, args.algo)), os.path.join(CONFIG_ROOT, "{}/config.yaml".format(args.algo)), os.path.join(CONFIG_ROOT, "meta_env_cfg/{}.yaml".format(args.task))
 
-    elif args.task in ["ShadowHandMetaMT1"]:
+    elif args.task in ["ShadowHandMetaMT2"]:
         return os.path.join(args.logdir, "{}/{}/{}".format(args.task, args.algo, args.algo)), os.path.join(CONFIG_ROOT, "{}/config.yaml".format(args.algo)), os.path.join(CONFIG_ROOT, "meta_env_cfg/{}.yaml".format(args.task))
 
     else:
