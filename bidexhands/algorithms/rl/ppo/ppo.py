@@ -53,6 +53,7 @@ class PPO:
         self.model_cfg = self.cfg_train["policy"]
         self.num_transitions_per_env = learn_cfg["nsteps"]
         self.learning_rate = learn_cfg["optim_stepsize"]
+        self.critic_learning_rate = learn_cfg.get("critic_learning_rate", self.learning_rate)
         self.record_episodes = cfg_train.get("record_episodes", False)
         self.num_rollouts = cfg_train.get("num_rollouts", 1000)
         self.hdf5_filepath = cfg_train.get("hdf5_filepath", None)
@@ -94,7 +95,8 @@ class PPO:
                 self.device,
                 sampler,
             )
-        self.optimizer = optim.Adam(self.actor_critic.parameters(), lr=self.learning_rate)
+        self.optimizer = optim.Adam(self.actor_critic.actor.parameters(), lr=self.learning_rate)
+        self.critic_optimizer = optim.Adam(self.actor_critic.critic.parameters(), lr=self.critic_learning_rate)
 
         # PPO parameters
         self.clip_param = learn_cfg["cliprange"]
@@ -292,15 +294,18 @@ class PPO:
         )
         print(log_string)
 
+        if self.schedule == "adaptive":
+            for param_group in self.optimizer.param_groups:
+                param_group["lr"] = self.step_size
+            for param_group in self.critic_optimizer.param_groups:
+                param_group["lr"] = self.step_size
+
     def update(self):
         mean_value_loss = 0
         mean_surrogate_loss = 0
 
         batch = self.storage.mini_batch_generator(self.num_mini_batches)
         for epoch in range(self.num_learning_epochs):
-            # for obs_batch, actions_batch, target_values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch \
-            #        in self.storage.mini_batch_generator(self.num_mini_batches):
-
             for indices in batch:
                 obs_batch = self.storage.observations.view(-1, *self.storage.observations.size()[2:])[indices]
                 if self.asymmetric:
@@ -361,11 +366,17 @@ class PPO:
 
                 loss = surrogate_loss + self.value_loss_coef * value_loss - self.entropy_coef * entropy_batch.mean()
 
-                # Gradient step
+                # Gradient step for actor
                 self.optimizer.zero_grad()
                 loss.backward()
-                nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)
+                nn.utils.clip_grad_norm_(self.actor_critic.actor.parameters(), self.max_grad_norm)
                 self.optimizer.step()
+
+                # Gradient step for critic
+                self.critic_optimizer.zero_grad()
+                value_loss.backward()
+                nn.utils.clip_grad_norm_(self.actor_critic.critic.parameters(), self.max_grad_norm)
+                self.critic_optimizer.step()
 
                 mean_value_loss += value_loss.item()
                 mean_surrogate_loss += surrogate_loss.item()
