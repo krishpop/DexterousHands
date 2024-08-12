@@ -134,7 +134,6 @@ class PPO:
         torch.save(self.actor_critic.state_dict(), path)
 
     def run(self, num_learning_iterations, log_interval=1):
-        breakpoint()
         current_obs = self.vec_env.reset()
         current_states = self.vec_env.get_state()
 

@@ -70,7 +70,12 @@ def retrieve_cfg(args, use_rlg_config=False):
                      "ShadowHandCatchOver2Underarm", "ShadowHandBottleCap", "ShadowHandDoorCloseInward", "ShadowHandDoorCloseOutward",
                     "ShadowHandDoorOpenInward", "ShadowHandDoorOpenOutward", "ShadowHandKettle", "ShadowHandPen", "ShadowHandSwitch",
                     "ShadowHandPushBlock", "ShadowHandSwingCup", "ShadowHandGraspAndPlace", "ShadowHandScissors", "AllegroHandOver", "AllegroHandCatchUnderarm"]:
-        return os.path.join(args.logdir, "{}/{}/{}".format(args.task, args.algo, args.algo)), os.path.join(CONFIG_ROOT, "{}/config.yaml".format(args.algo)), os.path.join(CONFIG_ROOT, "{}.yaml".format(args.task))
+        config_filename = "config.yaml"
+        if args.datatype == "ppo_collect":
+            config_filename = "config_collect.yaml"
+        elif args.datatype == "ppo_collect_5k":
+            config_filename = "config_collect_5k.yaml"
+        return os.path.join(args.logdir, "{}/{}/{}".format(args.task, args.algo, args.algo)), os.path.join(CONFIG_ROOT, "{}/{}".format(args.algo, config_filename)), os.path.join(CONFIG_ROOT, "{}.yaml".format(args.task))
 
     elif args.task in ["ShadowHandLiftUnderarm"]:
         return os.path.join(args.logdir, "{}/{}/{}".format(args.task, args.algo, args.algo)), os.path.join(CONFIG_ROOT, "{}/lift_config.yaml".format(args.algo)), os.path.join(CONFIG_ROOT, "{}.yaml".format(args.task))
