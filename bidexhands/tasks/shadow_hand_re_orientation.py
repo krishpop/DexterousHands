@@ -13,6 +13,7 @@ import os
 import random
 import torch
 
+from gym import spaces
 from bidexhands.utils.torch_jit_utils import *
 from bidexhands.tasks.hand_base.base_task import BaseTask
 from isaacgym import gymtorch
@@ -154,6 +155,7 @@ class ShadowHandReOrientation(BaseTask):
 
         self.cfg["env"]["numObservations"] = self.num_obs_dict[self.obs_type]
         self.cfg["env"]["numStates"] = num_states
+        self.pad_actions = self.cfg["env"].get("padActions", False)
         if self.is_multi_agent:
             self.num_agents = 2
             self.cfg["env"]["numActions"] = 20
@@ -175,6 +177,38 @@ class ShadowHandReOrientation(BaseTask):
         self.point_cloud_debug = self.cfg["env"].get("pointCloudDebug", False)
 
         super().__init__(cfg=self.cfg)
+        self.observation_space_dict = {
+            "right_hand_dof_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(24,), dtype=np.float32),
+            "right_hand_dof_vel": spaces.Box(low=-np.inf, high=np.inf, shape=(24,), dtype=np.float32),
+            "right_hand_dof_force": spaces.Box(low=-np.inf, high=np.inf, shape=(24,), dtype=np.float32),
+            "right_fingertip_state": spaces.Box(low=-np.inf, high=np.inf, shape=(65,), dtype=np.float32),
+            "right_fingertip_force": spaces.Box(low=-np.inf, high=np.inf, shape=(30,), dtype=np.float32),
+            "right_hand_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
+            "right_hand_euler": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
+            "right_hand_action": spaces.Box(low=-np.inf, high=np.inf, shape=(20,), dtype=np.float32),
+            "left_hand_dof_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(24,), dtype=np.float32),
+            "left_hand_dof_vel": spaces.Box(low=-np.inf, high=np.inf, shape=(24,), dtype=np.float32),
+            "left_hand_dof_force": spaces.Box(low=-np.inf, high=np.inf, shape=(24,), dtype=np.float32),
+            "left_fingertip_state": spaces.Box(low=-np.inf, high=np.inf, shape=(65,), dtype=np.float32),
+            "left_fingertip_force": spaces.Box(low=-np.inf, high=np.inf, shape=(30,), dtype=np.float32),
+            "left_hand_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
+            "left_hand_euler": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
+            "left_hand_action": spaces.Box(low=-np.inf, high=np.inf, shape=(20,), dtype=np.float32),
+            "object_pose": spaces.Box(low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32),
+            "object_linvel": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
+            "goal_pose": spaces.Box(low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32),
+            "goal_rot": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
+            "right_object_pose": spaces.Box(low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32),
+            "right_object_linvel": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
+            "right_goal_pose": spaces.Box(low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32),
+            "right_goal_rot": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32)
+        }
+
+        if self.use_image_obs:
+            self.observation_space_dict.update({
+                key: spaces.Box(low=0, high=255, shape=(v.height, v.width, 3), dtype=np.uint8)
+                for key, v in self.camera_spec_dict.items()
+            })
 
         if self.viewer != None:
             cam_pos = gymapi.Vec3(10.0, 5.0, 1.0)
@@ -662,6 +696,8 @@ class ShadowHandReOrientation(BaseTask):
         self.fingertip_another_state = self.rigid_body_states[:, self.fingertip_another_handles][:, :, 0:13]
         self.fingertip_another_pos = self.rigid_body_states[:, self.fingertip_another_handles][:, :, 0:3]
 
+        self.obs_dict = self.compute_obs_dict(self.obs_dict)
+
         if self.obs_type == "full_state":
             self.compute_full_state()
         elif self.obs_type == "point_cloud":
@@ -669,6 +705,58 @@ class ShadowHandReOrientation(BaseTask):
 
         if self.asymmetric_obs:
             self.compute_full_state(True)
+
+    def compute_obs_dict(self, obs_dict={}):
+        # fingertip observations, state(pose and vel) + force-torque sensors
+        num_ft_states = 13 * int(self.num_fingertips / 2)  # 65
+        num_ft_force_torques = 6 * int(self.num_fingertips / 2)  # 30
+
+        obs_dict["right_hand_dof_pos"] = unscale(self.shadow_hand_dof_pos,
+                                               self.shadow_hand_dof_lower_limits, self.shadow_hand_dof_upper_limits)
+        obs_dict["right_hand_dof_vel"] = self.vel_obs_scale * self.shadow_hand_dof_vel
+        obs_dict["right_hand_dof_force"] = self.force_torque_obs_scale * self.dof_force_tensor[:, :24]
+
+        obs_dict["right_fingertip_state"] = self.fingertip_state.reshape(self.num_envs, num_ft_states)
+        obs_dict["right_fingertip_force"] = self.force_torque_obs_scale * self.vec_sensor_tensor[:, :30]
+
+        obs_dict["right_hand_action"] = self.actions[:, :20]
+
+        # add ther_hand
+        obs_dict["left_hand_dof_pos"] = unscale(self.shadow_hand_another_dof_pos,
+                                               self.shadow_hand_dof_lower_limits, self.shadow_hand_dof_upper_limits)
+        obs_dict["left_hand_dof_vel"] = self.vel_obs_scale * self.shadow_hand_another_dof_vel
+        obs_dict["left_hand_dof_force"] = self.force_torque_obs_scale * self.dof_force_tensor[:, 24:48]
+
+        obs_dict["left_fingertip_state"] = self.fingertip_another_state.reshape(self.num_envs, num_ft_states)
+        obs_dict["left_fingertip_force"] = self.force_torque_obs_scale * self.vec_sensor_tensor[:, 30:]
+
+        obs_dict["left_hand_action"] = self.actions[:, 20:]
+
+        obs_dict["object_pose"] = self.object_pose
+        obs_dict["object_linvel"] = self.object_linvel
+        obs_dict["goal_pose"] = self.goal_pose
+        obs_dict["goal_rot"] = self.goal_rot
+
+        obs_dict["right_object_pose"] = self.object_another_pose
+        obs_dict["right_object_linvel"] = self.object_another_linvel
+        obs_dict["right_goal_pose"] = self.goal_another_pose
+        obs_dict["right_goal_rot"] = self.goal_another_rot
+
+        # Add hand positions and orientations
+        obs_dict["right_hand_pos"] = self.right_hand_pos
+        obs_dict["right_hand_rot"] = self.right_hand_rot
+        obs_dict["left_hand_pos"] = self.left_hand_pos
+        obs_dict["left_hand_rot"] = self.left_hand_rot
+
+        # Convert quaternions to euler angles for observation
+        obs_dict["right_hand_euler"] = quat_to_euler_xyz(self.right_hand_rot)
+        obs_dict["left_hand_euler"] = quat_to_euler_xyz(self.left_hand_rot)
+
+        if self.use_image_obs:
+            camera_image_tensors_dict = self.get_camera_image_tensors_dict(obs_dict)
+            obs_dict.update(camera_image_tensors_dict)
+
+        return obs_dict
 
     def compute_full_state(self, asymm_obs=False):
         """

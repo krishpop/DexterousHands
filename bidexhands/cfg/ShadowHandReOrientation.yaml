@@ -42,6 +42,7 @@ env:
   successTolerance: 0.1
   printNumSuccesses: False
   maxConsecutiveSuccesses: 0
+  enableCameraSensors: true
 
   asset:
     assetRoot: "../assets"

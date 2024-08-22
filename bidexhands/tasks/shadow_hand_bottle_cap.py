@@ -211,6 +211,12 @@ class ShadowHandBottleCap(BaseTask):
             "bottle_cap_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
             "bottle_cap_up": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
         }
+        if self.use_image_obs:
+            self.observation_space_dict.update({
+                key: spaces.Box(low=0, high=255, shape=(v.height, v.width, 3), dtype=np.uint8)
+                for key, v in self.camera_spec_dict.items()
+            })
+
         if self.viewer != None:
             cam_pos = gymapi.Vec3(10.0, 5.0, 1.0)
             cam_target = gymapi.Vec3(6.0, 5.0, 0.0)
