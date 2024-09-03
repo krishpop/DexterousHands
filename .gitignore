@@ -137,3 +137,6 @@ assets/dataset
 
 bidexhands.egg-info
 policy_learning_toolkit/*
+bidex-experts/
+**logs*/
+*.hdf5

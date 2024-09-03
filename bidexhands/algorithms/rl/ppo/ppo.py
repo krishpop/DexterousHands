@@ -367,13 +367,12 @@ class PPO:
 
                 # Gradient step for actor
                 self.optimizer.zero_grad()
+                self.critic_optimizer.zero_grad()
                 loss.backward()
                 nn.utils.clip_grad_norm_(self.actor_critic.actor.parameters(), self.max_grad_norm)
                 self.optimizer.step()
 
                 # Gradient step for critic
-                self.critic_optimizer.zero_grad()
-                value_loss.backward()
                 nn.utils.clip_grad_norm_(self.actor_critic.critic.parameters(), self.max_grad_norm)
                 self.critic_optimizer.step()
 
