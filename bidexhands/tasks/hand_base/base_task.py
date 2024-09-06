@@ -111,6 +111,17 @@ class BaseTask():
             self.gym.viewer_camera_look_at(
                 self.viewer, None, cam_pos, cam_target)
 
+    
+    def export_scene(self, label):
+        """Export scene to USD."""
+
+        usd_export_options = gymapi.UsdExportOptions()
+        usd_export_options.export_physics = False
+
+        usd_exporter = self.gym.create_usd_exporter(usd_export_options)
+        self.gym.export_usd_sim(usd_exporter, self.sim, label)
+        sys.exit()
+
     # set gravity based on up axis and return axis index
     def set_sim_params_up_axis(self, sim_params, axis):
         if axis == 'z':

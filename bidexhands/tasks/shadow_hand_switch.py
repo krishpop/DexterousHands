@@ -284,6 +284,8 @@ class ShadowHandSwitch(BaseTask):
 
         self.total_successes = 0
         self.total_resets = 0
+        if self.cfg['env'].get("export_scene", False):
+            self.export_scene(label="shadow_hand_switch")
 
     def create_sim(self):
         """
@@ -342,6 +344,8 @@ class ShadowHandSwitch(BaseTask):
         asset_options.thickness = 0.001
         asset_options.angular_damping = 100
         asset_options.linear_damping = 100
+        if self.cfg["env"].get("export_scene", False):
+            asset_options.mesh_normal_mode = gymapi.COMPUTE_PER_FACE
 
         if self.physics_engine == gymapi.SIM_PHYSX:
             asset_options.use_physx_armature = True
@@ -418,6 +422,9 @@ class ShadowHandSwitch(BaseTask):
         # object_asset_options.replace_cylinder_with_capsule = True
         object_asset_options.default_dof_drive_mode = gymapi.DOF_MODE_NONE
 
+        if self.cfg["env"].get("export_scene", False):
+            object_asset_options.mesh_normal_mode = gymapi.COMPUTE_PER_FACE
+
         object_asset = self.gym.load_asset(self.sim, asset_root, object_asset_file, object_asset_options)
 
         object_asset_options.disable_gravity = True
@@ -448,6 +455,8 @@ class ShadowHandSwitch(BaseTask):
         asset_options.collapse_fixed_joints = True
         asset_options.disable_gravity = True
         asset_options.thickness = 0.001
+        if self.cfg["env"].get("export_scene", False):
+            asset_options.mesh_normal_mode = gymapi.COMPUTE_PER_FACE
 
         table_asset = self.gym.create_box(self.sim, table_dims.x, table_dims.y, table_dims.z, gymapi.AssetOptions())
 

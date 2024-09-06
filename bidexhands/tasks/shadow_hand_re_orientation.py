@@ -98,6 +98,8 @@ class ShadowHandReOrientation(BaseTask):
 
         self.transition_scale = self.cfg["env"]["transition_scale"]
         self.orientation_scale = self.cfg["env"]["orientation_scale"]
+        self.use_image_obs = self.cfg["env"].get("enableCameraSensors", False)
+        self.obs_dict = {}
 
         control_freq_inv = self.cfg["env"].get("controlFrequencyInv", 1)
         if self.reset_time > 0.0:
@@ -194,14 +196,14 @@ class ShadowHandReOrientation(BaseTask):
             "left_hand_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
             "left_hand_euler": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
             "left_hand_action": spaces.Box(low=-np.inf, high=np.inf, shape=(20,), dtype=np.float32),
-            "object_pose": spaces.Box(low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32),
+            "object_pose": spaces.Box(low=-np.inf, high=np.inf, shape=(7,), dtype=np.float32),
             "object_linvel": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
-            "goal_pose": spaces.Box(low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32),
-            "goal_rot": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
-            "right_object_pose": spaces.Box(low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32),
+            "goal_pose": spaces.Box(low=-np.inf, high=np.inf, shape=(7,), dtype=np.float32),
+            "goal_rot": spaces.Box(low=-np.inf, high=np.inf, shape=(4,), dtype=np.float32),
+            "right_object_pose": spaces.Box(low=-np.inf, high=np.inf, shape=(7,), dtype=np.float32),
             "right_object_linvel": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
-            "right_goal_pose": spaces.Box(low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32),
-            "right_goal_rot": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32)
+            "right_goal_pose": spaces.Box(low=-np.inf, high=np.inf, shape=(7,), dtype=np.float32),
+            "right_goal_rot": spaces.Box(low=-np.inf, high=np.inf, shape=(4,), dtype=np.float32)
         }
 
         if self.use_image_obs:

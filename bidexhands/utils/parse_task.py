@@ -34,7 +34,7 @@ from bidexhands.tasks.allegro_hand_catch_underarm import AllegroHandCatchUnderar
 from bidexhands.tasks.shadow_hand_meta.shadow_hand_meta_mt1 import ShadowHandMetaMT1
 from bidexhands.tasks.shadow_hand_meta.shadow_hand_meta_ml1 import ShadowHandMetaML1
 from bidexhands.tasks.shadow_hand_meta.shadow_hand_meta_mt4 import ShadowHandMetaMT4
-# from bidexhands.tasks.shadow_hand_meta.shadow_hand_meta_mt2 import ShadowHandMetaMT2
+from bidexhands.tasks.shadow_hand_meta.shadow_hand_meta_mt2 import ShadowHandMetaMT2
 
 from bidexhands.tasks.hand_base.vec_task import VecTaskCPU, VecTaskGPU, VecTaskPython, VecTaskPythonArm
 from bidexhands.tasks.hand_base.multi_vec_task import MultiVecTaskPython, SingleVecTaskPythonArm

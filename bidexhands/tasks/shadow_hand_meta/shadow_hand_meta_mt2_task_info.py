@@ -188,6 +188,7 @@ def compute_hand_reward(
     success_tolerance: float, reach_goal_bonus: float, fall_dist: float,
     fall_penalty: float, max_consecutive_successes: int, av_factor: float, this_task: str
 ):
+
     # Distance from the hand to the object
     if this_task in ["catch_underarm", "two_catch_underarm", "catch_abreast", "catch_over2underarm"]:
         goal_dist = torch.norm(target_pos - object_pos, p=2, dim=-1)
@@ -339,10 +340,45 @@ def compute_hand_reward(
 
         return reward, resets, goal_resets, progress_buf, successes, cons_successes
 
-    if this_task in ["switch"]:
-        # Distance from the hand to the object
-        goal_dist = torch.norm(target_pos - object_pos, p=2, dim=-1)
-        # goal_dist = target_pos[:, 2] - object_pos[:, 2]
+    if this_task == "scissors":
+        right_hand_dist = torch.norm(object_right_handle_pos - right_hand_pos, p=2, dim=-1)
+        left_hand_dist = torch.norm(object_left_handle_pos - left_hand_pos, p=2, dim=-1)
+
+        right_hand_finger_dist = (torch.norm(object_right_handle_pos - right_hand_ff_pos, p=2, dim=-1) + torch.norm(object_right_handle_pos - right_hand_mf_pos, p=2, dim=-1)
+                                + torch.norm(object_right_handle_pos - right_hand_rf_pos, p=2, dim=-1) + torch.norm(object_right_handle_pos - right_hand_lf_pos, p=2, dim=-1) 
+                                + torch.norm(object_right_handle_pos - right_hand_th_pos, p=2, dim=-1))
+        left_hand_finger_dist = (torch.norm(object_left_handle_pos - left_hand_ff_pos, p=2, dim=-1) + torch.norm(object_left_handle_pos - left_hand_mf_pos, p=2, dim=-1)
+                                + torch.norm(object_left_handle_pos - left_hand_rf_pos, p=2, dim=-1) + torch.norm(object_left_handle_pos - left_hand_lf_pos, p=2, dim=-1) 
+                                + torch.norm(object_left_handle_pos - left_hand_th_pos, p=2, dim=-1))
+
+        right_hand_dist_rew = right_hand_finger_dist
+        left_hand_dist_rew = left_hand_finger_dist
+
+        up_rew = torch.zeros_like(right_hand_dist_rew)
+        up_rew = torch.where(right_hand_finger_dist < 0.7,
+                        torch.where(left_hand_finger_dist < 0.7,
+                            (0.59 + object_dof_pos[:, 0]) * 5, up_rew), up_rew)
+
+        reward = 2 + up_rew - right_hand_dist_rew - left_hand_dist_rew
+
+        resets = torch.where(up_rew < -0.5, torch.ones_like(reset_buf), reset_buf)
+        resets = torch.where(right_hand_finger_dist >= 1.75, torch.ones_like(resets), resets)
+        resets = torch.where(left_hand_finger_dist >= 1.75, torch.ones_like(resets), resets)
+        resets = torch.where(progress_buf >= max_episode_length, torch.ones_like(resets), resets)
+
+        successes = torch.where(successes == 0, 
+                        torch.where(object_dof_pos[:, 0] > -0.3, torch.ones_like(successes), successes), successes)
+
+        goal_resets = torch.zeros_like(resets)
+
+        num_resets = torch.sum(resets)
+        finished_cons_successes = torch.sum(successes * resets.float())
+
+        cons_successes = torch.where(resets > 0, successes * resets, consecutive_successes).mean()
+
+        return reward, resets, goal_resets, progress_buf, successes, cons_successes
+
+    if this_task == "switch":
         right_hand_dist = torch.norm(object_right_handle_pos - right_hand_pos, p=2, dim=-1)
         left_hand_dist = torch.norm(object_left_handle_pos - left_hand_pos, p=2, dim=-1)
 
@@ -352,33 +388,18 @@ def compute_hand_reward(
         left_hand_finger_dist = (torch.norm(object_left_handle_pos - left_hand_ff_pos, p=2, dim=-1) + torch.norm(object_left_handle_pos - left_hand_mf_pos, p=2, dim=-1)
                             + torch.norm(object_left_handle_pos - left_hand_rf_pos, p=2, dim=-1) + torch.norm(object_left_handle_pos - left_hand_lf_pos, p=2, dim=-1) 
                             + torch.norm(object_left_handle_pos - left_hand_th_pos, p=2, dim=-1))
-        # Orientation alignment for the cube in hand and goal cube
-        # quat_diff = quat_mul(object_rot, quat_conjugate(target_rot))
-        # rot_dist = 2.0 * torch.asin(torch.clamp(torch.norm(quat_diff[:, 0:3], p=2, dim=-1), max=1.0))
 
         right_hand_dist_rew = right_hand_finger_dist
         left_hand_dist_rew = left_hand_finger_dist
 
-        # rot_rew = 1.0/(torch.abs(rot_dist) + rot_eps) * rot_reward_scale
-
-        action_penalty = torch.sum(actions ** 2, dim=-1)
-
-        # Total reward is: position distance + orientation alignment + action regularization + success bonus + fall penalty
-        # reward = torch.exp(-0.05*(up_rew * dist_reward_scale)) + torch.exp(-0.05*(right_hand_dist_rew * dist_reward_scale)) + torch.exp(-0.05*(left_hand_dist_rew * dist_reward_scale))
-        up_rew = torch.zeros_like(right_hand_dist_rew)
         up_rew = (1.4-(object_right_handle_pos[:, 2] + object_left_handle_pos[:, 2])) * 50
 
-        # reward = 0.2 - right_hand_dist_rew - left_hand_dist_rew + up_rew
         reward = 2 - right_hand_dist_rew - left_hand_dist_rew + up_rew
 
         successes = torch.where(successes == 0, 
                     torch.where(1.4-(object_right_handle_pos[:, 2] + object_left_handle_pos[:, 2]) > 0.05, torch.ones_like(successes), successes), successes)
 
-        resets = torch.where(object_pos[:, 2] <= 0.3, torch.ones_like(reset_buf), reset_buf)
-        resets = torch.where(right_hand_dist >= 0.2, torch.ones_like(resets), resets)
-        resets = torch.where(left_hand_dist >= 0.2, torch.ones_like(resets), resets)
-
-        # Find out which envs hit the goal and update successes count
+        resets = torch.where(right_hand_dist_rew <= 0, torch.ones_like(reset_buf), reset_buf)
         resets = torch.where(progress_buf >= max_episode_length, torch.ones_like(resets), resets)
 
         goal_resets = torch.zeros_like(resets)
@@ -386,7 +407,7 @@ def compute_hand_reward(
         num_resets = torch.sum(resets)
         finished_cons_successes = torch.sum(successes * resets.float())
 
-        cons_successes = torch.where(num_resets > 0, av_factor*finished_cons_successes/num_resets + (1.0 - av_factor)*consecutive_successes, consecutive_successes)
+        cons_successes = torch.where(resets > 0, successes * resets, consecutive_successes).mean()
 
         return reward, resets, goal_resets, progress_buf, successes, cons_successes
 

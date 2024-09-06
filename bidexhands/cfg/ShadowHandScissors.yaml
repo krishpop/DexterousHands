@@ -34,6 +34,8 @@ env:
   fallDistance: 0.4
   fallPenalty: 0.0
 
+  export_scene: true
+
   objectType: "pot" # can be block, egg or pen
   observationType: "full_state" # full_state or point_cloud
   handAgentIndex: "[[0, 1, 2, 3, 4, 5]]"

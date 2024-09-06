@@ -287,6 +287,8 @@ class ShadowHandScissors(BaseTask):
 
         self.total_successes = 0
         self.total_resets = 0
+        if self.cfg["env"].get("export_scene", False):
+            self.export_scene(label="shadow_hand_scissors")
 
     def create_sim(self):
         """
@@ -349,6 +351,9 @@ class ShadowHandScissors(BaseTask):
         if self.physics_engine == gymapi.SIM_PHYSX:
             asset_options.use_physx_armature = True
         asset_options.default_dof_drive_mode = gymapi.DOF_MODE_NONE
+
+        if self.cfg["env"].get("export_scene", False):
+            asset_options.mesh_normal_mode = gymapi.COMPUTE_PER_FACE
 
         shadow_hand_asset = self.gym.load_asset(self.sim, asset_root, shadow_hand_asset_file, asset_options)
         shadow_hand_another_asset = self.gym.load_asset(self.sim, asset_root, shadow_hand_another_asset_file, asset_options)
@@ -416,6 +421,9 @@ class ShadowHandScissors(BaseTask):
         object_asset_options.density = 500
         object_asset_options.fix_base_link = False
         object_asset_options.default_dof_drive_mode = gymapi.DOF_MODE_NONE
+
+        if self.cfg["env"].get("export_scene", False):
+            object_asset_options.mesh_normal_mode = gymapi.COMPUTE_PER_FACE
         # object_asset_options.use_mesh_materials = True
         # object_asset_options.mesh_normal_mode = gymapi.COMPUTE_PER_VERTEX
         # object_asset_options.override_com = True
@@ -449,6 +457,8 @@ class ShadowHandScissors(BaseTask):
         # create table asset
         table_dims = gymapi.Vec3(0.5, 1.0, 0.6)
         asset_options = gymapi.AssetOptions()
+        if self.cfg["env"].get("export_scene", False):
+            asset_options.mesh_normal_mode = gymapi.COMPUTE_PER_FACE
         asset_options.fix_base_link = True
         asset_options.flip_visual_attachments = True
         asset_options.collapse_fixed_joints = True

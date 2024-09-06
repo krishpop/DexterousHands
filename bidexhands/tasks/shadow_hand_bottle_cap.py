@@ -291,6 +291,9 @@ class ShadowHandBottleCap(BaseTask):
         self.total_successes = 0
         self.total_resets = 0
 
+        if self.cfg["env"].get("export_scene", False):
+            self.export_scene(label="shadow_hand_bottle_cap")
+
     def create_sim(self):
         self.dt = self.sim_params.dt
         self.up_axis_idx = self.set_sim_params_up_axis(self.sim_params, self.up_axis)
@@ -333,6 +336,9 @@ class ShadowHandBottleCap(BaseTask):
         if self.physics_engine == gymapi.SIM_PHYSX:
             asset_options.use_physx_armature = True
         asset_options.default_dof_drive_mode = gymapi.DOF_MODE_NONE
+
+        if self.cfg["env"].get("export_scene", False):
+            asset_options.mesh_normal_mode = gymapi.COMPUTE_PER_FACE
 
         shadow_hand_asset = self.gym.load_asset(self.sim, asset_root, shadow_hand_asset_file, asset_options)
         shadow_hand_another_asset = self.gym.load_asset(self.sim, asset_root, shadow_hand_another_asset_file, asset_options)
@@ -401,6 +407,9 @@ class ShadowHandBottleCap(BaseTask):
         object_asset_options.fix_base_link = False
         object_asset_options.disable_gravity = False
 
+        if self.cfg["env"].get("export_scene", False):
+            object_asset_options.mesh_normal_mode = gymapi.COMPUTE_PER_FACE     
+
         object_asset = self.gym.load_asset(self.sim, asset_root, object_asset_file, object_asset_options)
 
         # set object dof properties
@@ -437,6 +446,9 @@ class ShadowHandBottleCap(BaseTask):
         asset_options.collapse_fixed_joints = True
         asset_options.disable_gravity = True
         asset_options.thickness = 0.001
+
+        if self.cfg["env"].get("export_scene", False):
+            asset_options.mesh_normal_mode = gymapi.COMPUTE_PER_FACE
 
         table_asset = self.gym.create_box(self.sim, table_dims.x, table_dims.y, table_dims.z, asset_options)
 
