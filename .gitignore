@@ -140,3 +140,4 @@ policy_learning_toolkit/*
 bidex-experts/
 **logs*/
 *.hdf5
+*.tar.gz
