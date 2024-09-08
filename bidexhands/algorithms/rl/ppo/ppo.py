@@ -150,7 +150,7 @@ class PPO:
                     if self.record_episodes and self.num_rollouts > 0:
                         self.storage.add_rollout_transitions(self.vec_env.task.obs_dict, actions, rews, dones)
                         if dones.any():
-                            rollouts = self.storage.save_hdf5()
+                            rollouts = self.storage.save_hdf5(infos)
                             if rollouts >= self.num_rollouts:
                                 return
                     current_obs.copy_(next_obs)

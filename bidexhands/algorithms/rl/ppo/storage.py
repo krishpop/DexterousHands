@@ -121,11 +121,13 @@ class RolloutDataset(RolloutStorage):
         self.sampler = sampler
 
         # Core
-        self.observations = {key: torch.zeros(num_transitions_per_env, num_envs, *obs_shape.shape, device=self.device) for key, obs_shape in obs_shape.items()}
+        camera_keys = list(filter(lambda x: 'camera' in x, obs_shape.keys())) 
+        self.observations = {key: torch.zeros(num_transitions_per_env, num_envs, *obs_shape.shape, device=self.device, dtype=torch.float32 if key not in camera_keys else torch.uint8)
+                             for key, obs_shape in obs_shape.items()}
         # self.states = torch.zeros(num_transitions_per_env, num_envs, *states_shape, device=self.device)
         self.rewards = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
         self.actions = torch.zeros(num_transitions_per_env, num_envs, *actions_shape, device=self.device)
-        self.dones = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device).byte()
+        self.dones = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device).to(dtype=torch.bool)
 
         # For PPO
         self.actions_log_prob = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
@@ -151,7 +153,14 @@ class RolloutDataset(RolloutStorage):
                     self.pbar = tqdm(total=self.num_rollouts, desc="Saving demos", initial=len(f["data"]))
 
 
-    def save_hdf5(self):
+    def skip_episode(self, infos, env_idx):
+        if self.success_reward_filter and self.rewards[-1, env_idx] < self.success_reward_filter:
+            return True
+        elif infos is not None and "successes" in infos and infos["successes"][env_idx] == 0:
+            return True
+        return False
+
+    def save_hdf5(self, infos=None):
         with h5py.File(self.save_path, "a") as f:
             # Store each episode as a separate demo
             if "data" not in f:
@@ -173,7 +182,7 @@ class RolloutDataset(RolloutStorage):
                     break
                 # If done and not a success, continue
                 # check if last reward is greater than self.success_reward_filter
-                if self.success_reward_filter and self.rewards[-1, env_idx] < self.success_reward_filter:
+                if self.skip_episode(infos, env_idx):
                     continue
                 grp_ep = grp.create_group(f"demo_{ep}")
                 grp_ep.attrs["num_samples"] = int(self.step_vec[env_idx]) - 1
@@ -192,16 +201,15 @@ class RolloutDataset(RolloutStorage):
         return ep
 
     def add_rollout_transitions(self, observations, actions, rewards, dones):
-        for env_idx in range(self.num_envs):
-            step = int(self.step_vec[env_idx])
-            if step >= self.num_transitions_per_env:
-                raise AssertionError(f"Rollout buffer overflow at index {env_idx}")
+        steps = self.step_vec.long()
+        if torch.any(steps >= self.num_transitions_per_env):
+            raise AssertionError(f"Rollout buffer overflow")
 
-            for key in self.observations.keys():
-                self.observations[key][step, env_idx].copy_(observations[key][env_idx])
-            self.actions[step, env_idx].copy_(actions[env_idx])
-            self.rewards[step, env_idx].copy_(rewards[env_idx].view(-1))
-            self.dones[step, env_idx].copy_(dones[env_idx].view(-1))
+        for key in self.observations.keys():
+            self.observations[key][steps, torch.arange(self.num_envs)] = observations[key]
+        self.actions[steps, torch.arange(self.num_envs)] = actions
+        self.rewards[steps, torch.arange(self.num_envs)] = rewards.view(self.num_envs, 1)
+        self.dones[steps, torch.arange(self.num_envs)] = dones.view(self.num_envs, 1).to(self.dones)
 
-            self.step_vec[env_idx] += 1
+        self.step_vec += 1
 

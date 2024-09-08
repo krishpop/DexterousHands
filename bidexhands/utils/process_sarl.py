@@ -10,7 +10,7 @@ def process_sarl(args, env, cfg_train, logdir):
     # is_testing = True
     # Override resume and testing flags if they are passed as parameters.
     if args.model_dir != "":
-        is_testing = True
+        is_testing = is_testing or not args.resume
         chkpt_path = args.model_dir
 
     if args.max_iterations != -1:
