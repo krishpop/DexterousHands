@@ -123,6 +123,10 @@ def load_cfg(args, use_rlg_config=False):
     else:
         cfg["task"] = {"randomize": False}
 
+    assert not (args.export_scene and args.export_state), "Cannot export both scene and state"
+    cfg["env"]["export_scene"] = args.export_scene
+    cfg["env"]["export_state"] = args.export_state
+
     logdir = args.logdir
     if use_rlg_config:
 
@@ -173,6 +177,20 @@ def load_cfg(args, use_rlg_config=False):
         if args.seed is not None:
             cfg_train["seed"] = args.seed
 
+        if args.datatype == "ppo_collect": 
+            base_filepath = os.path.dirname(args.model_dir) 
+            hdf5_filename = "rollouts_{}.hdf5".format(args.num_rollouts)
+            if args.success_only or args.success_reward_filter is not None:
+                hdf5_filename = "rollouts_{}_successes.hdf5".format(args.num_rollouts)
+            cfg_train["hdf5_filepath"] = os.path.join(base_filepath, hdf5_filename)
+            if args.num_rollouts > 0:
+                cfg_train["num_rollouts"] = args.num_rollouts
+            if args.success_only:
+                cfg_train["success_reward_filter"] = True
+            elif args.success_reward_filter is not None:
+                cfg_train["success_reward_filter"] = args.success_reward_filter
+
+        breakpoint()
         log_id = args.logdir
         if args.experiment != 'Base':
             if args.metadata:
@@ -271,7 +289,18 @@ def get_args(benchmark=False, use_rlg_config=False, task_name="", algo=""):
         {"name": "--model_dir", "type": str, "default": "",
             "help": "Choose a model dir"},
         {"name": "--datatype", "type": str, "default": "random",
-            "help": "Choose an offline datatype"}]
+            "help": "Choose an offline datatype"},
+        {"name": "--success_only", "action": "store_true", "default": False,
+            "help": "Only record successful episodes"},
+        {"name": "--success_reward_filter", "type": float, "default": None,
+            "help": "Minimum reward to be considered a successful episode"},
+        {"name": "--num_rollouts", "type": int, "default": 500,
+            "help": "Number of demonstrations to collect"},
+        {"name": "--export_scene", "action": "store_true", "default": False,
+            "help": "Export the scene to a file"},
+        {"name": "--export_state", "action": "store_true", "default": False,
+            "help": "Export the state to a file"},
+        ]
 
     if benchmark:
         custom_parameters += [{"name": "--num_proc", "type": int, "default": 1, "help": "Number of child processes to launch"},
@@ -293,7 +322,10 @@ def get_args(benchmark=False, use_rlg_config=False, task_name="", algo=""):
 
     # allignment with examples
     args.device_id = args.compute_device_id
-    args.device = args.sim_device_type if args.use_gpu_pipeline else 'cpu'
+    if args.export_scene:
+        args.device = 'cpu'
+    else:
+        args.device = args.sim_device_type if args.use_gpu_pipeline else 'cpu'
 
     if args.test:
         args.play = args.test
@@ -305,7 +337,7 @@ def get_args(benchmark=False, use_rlg_config=False, task_name="", algo=""):
 
     logdir, cfg_train, cfg_env = retrieve_cfg(args, use_rlg_config)
 
-    if use_rlg_config == False:
+    if not use_rlg_config:
         if args.horovod:
             print("Distributed multi-gpu training with Horovod is not supported by rl-pytorch. Use rl_games for distributed training.")
         if args.steps_num != -1:

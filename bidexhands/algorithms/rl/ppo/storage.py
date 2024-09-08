@@ -154,9 +154,9 @@ class RolloutDataset(RolloutStorage):
 
 
     def skip_episode(self, infos, env_idx):
-        if self.success_reward_filter and self.rewards[-1, env_idx] < self.success_reward_filter:
+        if isinstance(self.success_reward_filter, float) and self.rewards[-1, env_idx] < self.success_reward_filter:
             return True
-        elif infos is not None and "successes" in infos and infos["successes"][env_idx] == 0:
+        elif isinstance(self.success_reward_filter, bool) and infos is not None and "successes" in infos and infos["successes"][env_idx] == 0:
             return True
         return False
 

@@ -122,6 +122,16 @@ class BaseTask():
         self.gym.export_usd_sim(usd_exporter, self.sim, label)
         sys.exit()
 
+
+    def export_state(self):
+        """Export state to numpy."""
+        if not os.path.exists("./states"):
+            os.makedirs("./states")
+        np.save("./states/body_position.npy", self.body_positions)
+        np.save("./states/body_rotation.npy", self.body_rotations)
+        print(f"Saved states to {os.path.abspath('./states/body_position.npy')} and {os.path.abspath('./states/body_rotation.npy')}")
+        sys.exit()
+
     # set gravity based on up axis and return axis index
     def set_sim_params_up_axis(self, sim_params, axis):
         if axis == 'z':

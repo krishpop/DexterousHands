@@ -141,3 +141,5 @@ bidex-experts/
 **logs*/
 *.hdf5
 *.tar.gz
+.vscode/
+**states/

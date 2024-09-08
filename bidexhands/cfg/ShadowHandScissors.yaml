@@ -35,6 +35,7 @@ env:
   fallPenalty: 0.0
 
   export_scene: false
+  export_state: false
 
   objectType: "pot" # can be block, egg or pen
   observationType: "full_state" # full_state or point_cloud

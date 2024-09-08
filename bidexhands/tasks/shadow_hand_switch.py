@@ -283,8 +283,13 @@ class ShadowHandSwitch(BaseTask):
         self.apply_torque = torch.zeros((self.num_envs, self.num_bodies, 3), device=self.device, dtype=torch.float)
 
         self.total_successes = 0
-        self.total_resets = 0
-        if self.cfg['env'].get("export_scene", False):
+        self.total_resets = 0 
+        self._export_state = self.cfg['env'].get("export_state", False)
+        self._export_scene = self.cfg['env'].get("export_scene", False)
+        if self._export_state:
+            self.body_positions = []
+            self.body_rotations = []
+        if self._export_scene:
             self.export_scene(label="shadow_hand_switch")
 
     def create_sim(self):
@@ -344,7 +349,7 @@ class ShadowHandSwitch(BaseTask):
         asset_options.thickness = 0.001
         asset_options.angular_damping = 100
         asset_options.linear_damping = 100
-        if self.cfg["env"].get("export_scene", False):
+        if self._export_scene:
             asset_options.mesh_normal_mode = gymapi.COMPUTE_PER_FACE
 
         if self.physics_engine == gymapi.SIM_PHYSX:
@@ -422,7 +427,7 @@ class ShadowHandSwitch(BaseTask):
         # object_asset_options.replace_cylinder_with_capsule = True
         object_asset_options.default_dof_drive_mode = gymapi.DOF_MODE_NONE
 
-        if self.cfg["env"].get("export_scene", False):
+        if self._export_scene:
             object_asset_options.mesh_normal_mode = gymapi.COMPUTE_PER_FACE
 
         object_asset = self.gym.load_asset(self.sim, asset_root, object_asset_file, object_asset_options)
@@ -455,7 +460,7 @@ class ShadowHandSwitch(BaseTask):
         asset_options.collapse_fixed_joints = True
         asset_options.disable_gravity = True
         asset_options.thickness = 0.001
-        if self.cfg["env"].get("export_scene", False):
+        if self._export_scene:
             asset_options.mesh_normal_mode = gymapi.COMPUTE_PER_FACE
 
         table_asset = self.gym.create_box(self.sim, table_dims.x, table_dims.y, table_dims.z, gymapi.AssetOptions())
@@ -772,8 +777,8 @@ class ShadowHandSwitch(BaseTask):
         self.obs_dict['successes'] = self.extras['successes'] = self.successes
         self.obs_dict['consecutive_successes'] = self.extras['consecutive_successes'] = self.consecutive_successes
 
+        self.total_resets = self.total_resets + self.reset_buf.sum()
         if self.print_success_stat:
-            self.total_resets = self.total_resets + self.reset_buf.sum()
             direct_average_successes = self.total_successes + self.successes.sum()
             self.total_successes = self.total_successes + (self.successes * self.reset_buf).sum()
 
@@ -1266,8 +1271,30 @@ class ShadowHandSwitch(BaseTask):
         elif len(goal_env_ids) > 0:
             self.reset_target_pose(goal_env_ids)
 
-        if len(env_ids) > 0:
+        self_reset = len(env_ids) > 0 and not (self._export_state and self.total_resets > 0)
+        if self_reset:
             self.reset(env_ids, goal_env_ids)
+            if self._export_state:
+                self.body_positions.append(self.rigid_body_states[:, :, 0:3].view(-1, 3).cpu().numpy().copy())
+                self.body_rotations.append(self.rigid_body_states[:, :, 3:7].view(-1, 4).cpu().numpy().copy())
+        elif len(env_ids) > 0:
+            if self.use_relative_control:
+                # For relative control, actions of 0 produce no change
+                actions[env_ids, :] = torch.zeros_like(actions[env_ids])
+            else:
+                # For absolute control, we need to calculate the action that would produce the same target
+                actions[env_ids, 6:26] = unscale(
+                    self.prev_targets[env_ids, self.actuated_dof_indices],
+                    self.shadow_hand_dof_lower_limits[self.actuated_dof_indices],
+                    self.shadow_hand_dof_upper_limits[self.actuated_dof_indices]
+                )
+                actions[env_ids, 32:52] = unscale(
+                    self.prev_targets[env_ids, self.actuated_dof_indices + 24],
+                    self.shadow_hand_dof_lower_limits[self.actuated_dof_indices],
+                    self.shadow_hand_dof_upper_limits[self.actuated_dof_indices]
+                )
+                actions[env_ids, :6] = 0
+                actions[env_ids, 26:32] = 0
 
         self.actions = actions.clone().to(self.device)
         if self.use_relative_control:
@@ -1321,6 +1348,12 @@ class ShadowHandSwitch(BaseTask):
 
         self.compute_observations()
         self.compute_reward(self.actions)
+
+        if self._export_state:
+            self.body_positions.append(self.rigid_body_states[:, :, 0:3].cpu().numpy().copy())
+            self.body_rotations.append(self.rigid_body_states[:, :, 3:7].cpu().numpy().copy())
+        if self._export_state and self.reset_buf.all():
+            self.export_state()
 
         if self.viewer and self.debug_viz:
             # draw axes on target object

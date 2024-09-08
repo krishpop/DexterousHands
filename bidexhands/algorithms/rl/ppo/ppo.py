@@ -131,7 +131,15 @@ class PPO:
         self.actor_critic.train()
 
     def save(self, path):
-        torch.save(self.actor_critic.state_dict(), path)
+        torch.save(
+            {
+                "actor_critic": self.actor_critic.state_dict(),
+                "current_learning_iteration": self.current_learning_iteration,
+                "optimizer": self.optimizer.state_dict(),
+                "critic_optimizer": self.critic_optimizer.state_dict(),
+            },
+            path,
+        )
 
     def run(self, num_learning_iterations, log_interval=1):
         current_obs = self.vec_env.reset()
@@ -158,11 +166,14 @@ class PPO:
         else:
             rewbuffer = deque(maxlen=100)
             lenbuffer = deque(maxlen=100)
+            successbuffer = deque(maxlen=100)
             cur_reward_sum = torch.zeros(self.vec_env.num_envs, dtype=torch.float, device=self.device)
             cur_episode_length = torch.zeros(self.vec_env.num_envs, dtype=torch.float, device=self.device)
+            cur_successes = torch.zeros(self.vec_env.num_envs, dtype=torch.float, device=self.device)
 
             reward_sum = []
             episode_length = []
+            successes = []
 
             for it in range(self.current_learning_iteration, num_learning_iterations):
                 start = time.time()
@@ -190,10 +201,12 @@ class PPO:
                     if self.print_log:
                         cur_reward_sum[:] += rews
                         cur_episode_length[:] += 1
+                        cur_successes[:] += infos["successes"]
 
                         new_ids = (dones > 0).nonzero(as_tuple=False)
                         reward_sum.extend(cur_reward_sum[new_ids][:, 0].cpu().numpy().tolist())
                         episode_length.extend(cur_episode_length[new_ids][:, 0].cpu().numpy().tolist())
+                        successes.extend(cur_successes[new_ids][:, 0].cpu().numpy().tolist())
                         cur_reward_sum[new_ids] = 0
                         cur_episode_length[new_ids] = 0
 
@@ -202,6 +215,7 @@ class PPO:
                     # episode_length = [x[0] for x in episode_length]
                     rewbuffer.extend(reward_sum)
                     lenbuffer.extend(episode_length)
+                    successbuffer.extend(successes)
 
                 _, _, last_values, _, _ = self.actor_critic.act(current_obs, current_states)
                 stop = time.time()
@@ -248,6 +262,9 @@ class PPO:
             self.writer.add_scalar("Train/mean_reward/time", statistics.mean(locs["rewbuffer"]), self.tot_time)
             self.writer.add_scalar("Train/mean_episode_length/time", statistics.mean(locs["lenbuffer"]), self.tot_time)
 
+        if len(locs["successbuffer"]) > 0:
+            self.writer.add_scalar("Train/mean_successes", statistics.mean(locs["successbuffer"]), locs["it"])
+
         self.writer.add_scalar("Train2/mean_reward/step", locs["mean_reward"], locs["it"])
         self.writer.add_scalar("Train2/mean_episode_length/episode", locs["mean_trajectory_length"], locs["it"])
 
@@ -268,6 +285,7 @@ class PPO:
                 f"""{'Mean episode length:':>{pad}} {statistics.mean(locs['lenbuffer']):.2f}\n"""
                 f"""{'Mean reward/step:':>{pad}} {locs['mean_reward']:.2f}\n"""
                 f"""{'Mean episode length/episode:':>{pad}} {locs['mean_trajectory_length']:.2f}\n"""
+                f"""{'Mean successes:':>{pad}} {statistics.mean(locs['successbuffer']):.2f}\n"""
             )
         else:
             log_string = (
