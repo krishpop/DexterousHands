@@ -186,6 +186,8 @@ class ShadowHandSwitch(BaseTask):
         if self.use_image_obs:
             self.camera_spec_dict = self.get_default_camera_specs()
 
+        self._export_state = self.cfg['env'].get("export_state", False)
+        self._export_scene = self.cfg['env'].get("export_scene", False)
         super().__init__(cfg=self.cfg)
         self.observation_space_dict = {
             "right_hand_dof_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(24,), dtype=np.float32),
@@ -284,8 +286,6 @@ class ShadowHandSwitch(BaseTask):
 
         self.total_successes = 0
         self.total_resets = 0 
-        self._export_state = self.cfg['env'].get("export_state", False)
-        self._export_scene = self.cfg['env'].get("export_scene", False)
         if self._export_state:
             self.body_positions = []
             self.body_rotations = []
@@ -721,32 +721,6 @@ class ShadowHandSwitch(BaseTask):
             self.camera_tensors_list.append(
                 self.create_tensors_for_env_cameras(env_ptr, env_camera_handles, camera_spec)
             )
-
-    def get_default_camera_specs(self):
-        camera_specs = self.cfg["env"].get("camera_spec", {"hand_camera": dict(width=64, height=64)})
-        camera_spec_dict = {}
-        for k in camera_specs:
-            camera_spec = camera_specs[k]
-            camera_config = {
-                "name": k,
-                "is_body_camera": camera_spec.get("is_body_camera", False),
-                "actor_name": camera_spec.get("actor_name", "hand"),
-                "attach_link_name": camera_spec.get("attach_link_name", "palm_link"),
-                "use_collision_geometry": True,
-                "width": camera_spec.get("width", 64),
-                "height": camera_spec.get("height", 64),
-                "image_size": [camera_spec.get("width", 64), camera_spec.get("height", 64)],
-                "image_type": "rgb",
-                "horizontal_fov": 90.0,
-                # "position": [-0.1, 0.15, 0.15],
-                # "rotation": [1, 0, 0, 0],
-                "near_plane": 0.1,
-                "far_plane": 100,
-                "camera_pose": camera_spec.get("camera_pose", [[0.0, -0.35, 0.2], [0.0, 0.0, 0.85090352, 0.52532199]]),
-            }
-            camera_spec_dict[k] = OmegaConf.create(camera_config)
-
-        return camera_spec_dict
 
     def compute_reward(self, actions):
         """

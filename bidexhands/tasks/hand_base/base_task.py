@@ -132,6 +132,32 @@ class BaseTask():
         print(f"Saved states to {os.path.abspath('./states/body_position.npy')} and {os.path.abspath('./states/body_rotation.npy')}")
         sys.exit()
 
+    def get_default_camera_specs(self):
+        camera_specs = self.cfg["env"].get("camera_spec", {"hand_camera": dict(width=64, height=64)})
+        camera_spec_dict = {}
+        for k in camera_specs:
+            camera_spec = camera_specs[k]
+            camera_config = {
+                "name": k,
+                "is_body_camera": camera_spec.get("is_body_camera", False),
+                "actor_name": camera_spec.get("actor_name", "hand"),
+                "attach_link_name": camera_spec.get("attach_link_name", "palm_link"),
+                "use_collision_geometry": True,
+                "width": camera_spec.get("width", 64),
+                "height": camera_spec.get("height", 64),
+                "image_size": [camera_spec.get("width", 64), camera_spec.get("height", 64)],
+                "image_type": "rgb",
+                "horizontal_fov": 90.0,
+                # "position": [-0.1, 0.15, 0.15],
+                # "rotation": [1, 0, 0, 0],
+                "near_plane": 0.1,
+                "far_plane": 100,
+                "camera_pose": camera_spec.get("camera_pose", [[0.0, -0.35, 0.2], [0.0, 0.0, 0.85090352, 0.52532199]]),
+            }
+            camera_spec_dict[k] = OmegaConf.create(camera_config)
+
+        return camera_spec_dict
+
     # set gravity based on up axis and return axis index
     def set_sim_params_up_axis(self, sim_params, axis):
         if axis == 'z':

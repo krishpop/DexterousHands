@@ -186,6 +186,8 @@ class ShadowHandBottleCap(BaseTask):
         if self.use_image_obs:
             self.camera_spec_dict = self.get_default_camera_specs()
 
+        self._export_state = self.cfg['env'].get("export_state", False)
+        self._export_scene = self.cfg['env'].get("export_scene", False)
         super().__init__(cfg=self.cfg)
         self.observation_space_dict = {
             "right_hand_dof_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(24,), dtype=np.float32),
@@ -291,8 +293,6 @@ class ShadowHandBottleCap(BaseTask):
         self.total_successes = 0
         self.total_resets = 0
 
-        self._export_state = self.cfg['env'].get("export_state", False)
-        self._export_scene = self.cfg['env'].get("export_scene", False)
         if self._export_state:
             self.body_positions = []
             self.body_rotations = []

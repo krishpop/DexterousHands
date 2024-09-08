@@ -178,6 +178,8 @@ def load_cfg(args, use_rlg_config=False):
             cfg_train["seed"] = args.seed
 
         if args.datatype == "ppo_collect": 
+            # collect data with camera sensors
+            cfg["env"]["enableCameraSensors"] = True
             base_filepath = os.path.dirname(args.model_dir) 
             hdf5_filename = "rollouts_{}.hdf5".format(args.num_rollouts)
             if args.success_only or args.success_reward_filter is not None:

@@ -44,7 +44,7 @@ env:
   successTolerance: 0.1
   printNumSuccesses: False
   maxConsecutiveSuccesses: 0
-  enableCameraSensors: true
+  enableCameraSensors: false
   camera_spec:
     fixed_camera:
       width: 224
