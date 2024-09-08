@@ -190,7 +190,6 @@ def load_cfg(args, use_rlg_config=False):
             elif args.success_reward_filter is not None:
                 cfg_train["success_reward_filter"] = args.success_reward_filter
 
-        breakpoint()
         log_id = args.logdir
         if args.experiment != 'Base':
             if args.metadata:
