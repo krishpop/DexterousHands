@@ -122,12 +122,17 @@ class PPO:
         self.apply_reset = apply_reset
 
     def test(self, path):
-        self.actor_critic.load_state_dict(torch.load(path))
+        state_dict = torch.load(path)
+        self.actor_critic.load_state_dict(state_dict['actor_critic'])
         self.actor_critic.eval()
 
-    def load(self, path):
-        self.actor_critic.load_state_dict(torch.load(path))
+    def load(self, path): 
+        state_dict = torch.load(path)
+        self.actor_critic.load_state_dict(state_dict['actor_critic'])
+        self.optimizer.load_state_dict(state_dict['optimizer'])
+        self.critic_optimizer.load_state_dict(state_dict['critic_optimizer'])
         self.current_learning_iteration = int(path.split("_")[-1].split(".")[0])
+        assert self.current_learning_iteration == state_dict['current_learning_iteration']
         self.actor_critic.train()
 
     def save(self, path):

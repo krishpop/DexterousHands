@@ -42,5 +42,4 @@ for expert in "${filtered_experts[@]}"; do
     # get task name from expert path
     task=$(basename "$(dirname "$(dirname "$(dirname "$expert")")")")
     python train.py --algo ppo --datatype ppo_collect --model_dir $expert --task $task --num_envs 64 --num_rollouts 500
-    python train.py --algo ppo --datatype ppo_collect --model_dir $expert --task $task --num_envs 64 --num_rollouts 500 --success_only
 done
